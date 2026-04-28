@@ -1,0 +1,73 @@
+import sqlite3
+import json
+import os
+from datetime import datetime, timedelta, date
+from typing import Optional
+
+_DB_PATH = os.path.join(os.path.dirname(__file__), "..", "db", "cache.db")
+
+
+def _get_connection() -> sqlite3.Connection:
+    """Return a SQLite connection, creating the cache tables if needed."""
+    os.makedirs(os.path.dirname(_DB_PATH), exist_ok=True)
+    conn = sqlite3.connect(_DB_PATH)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS metric_cache (
+            ticker      TEXT PRIMARY KEY,
+            metric_json TEXT NOT NULL,
+            timestamp   TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS hedge_fund_cache (
+            cache_key   TEXT PRIMARY KEY,
+            data_json   TEXT NOT NULL,
+            cached_date TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    return conn
+
+
+def save_to_cache(ticker: str, data: dict) -> None:
+    """Persist a metrics dict for a ticker to the SQLite cache."""
+    conn = _get_connection()
+    try:
+        conn.execute(
+            """
+            INSERT INTO metric_cache (ticker, metric_json, timestamp)
+            VALUES (?, ?, ?)
+            ON CONFLICT(ticker) DO UPDATE SET
+                metric_json = excluded.metric_json,
+                timestamp   = excluded.timestamp
+            """,
+            (ticker.upper(), json.dumps(data), datetime.utcnow().isoformat()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def load_from_cache(ticker: str, max_age_hours: int = 1) -> Optional[dict]:
+    """Load cached metrics for a ticker if the entry is within max_age_hours."""
+    conn = _get_connection()
+    try:
+        row = conn.execute(
+            "SELECT metric_json, timestamp FROM metric_cache WHERE ticker = ?",
+            (ticker.upper(),),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if row is None:
+        return None
+
+    metric_json, timestamp_str = row
+    cached_at = datetime.fromisoformat(timestamp_str)
+    if datetime.utcnow() - cached_at > timedelta(hours=max_age_hours):
+        return None
+
+    try:
+        return json.loads(metric_json)
+    except json.JSONDecodeError:
+        return None
