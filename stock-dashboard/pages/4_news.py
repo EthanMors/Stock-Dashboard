@@ -1,8 +1,10 @@
+import os
 from datetime import datetime, timezone
 
 import streamlit as st
 
 from data.news_fetcher import PAYWALL_DOMAINS, FREE_DOMAINS, fetch_news, scrape_article
+from data.agents.orchestrator import run_pipeline
 
 st.set_page_config(page_title="News", layout="wide")
 
@@ -91,6 +93,137 @@ def _render_article(article: dict, idx: int) -> None:
 
 
 # ---------------------------------------------------------------------------
+# AI Intelligence section
+# ---------------------------------------------------------------------------
+
+_VERDICT_CONFIG = {
+    "bullish": {"fn": st.success, "label": "Bullish"},
+    "bearish": {"fn": st.error,   "label": "Bearish"},
+    "neutral": {"fn": st.warning, "label": "Neutral"},
+}
+
+
+def _render_summaries_only(result: dict) -> None:
+    summaries = result.get("summaries", {})
+    filtered_articles = result.get("filtered_articles", [])
+    with st.expander(f"Article Summaries ({len(summaries)})", expanded=True):
+        for idx, summary_text in summaries.items():
+            if 0 <= idx < len(filtered_articles):
+                title = filtered_articles[idx].get("title", f"Article {idx + 1}")
+                st.markdown(f"**{title}**")
+                st.markdown(summary_text)
+                st.markdown("---")
+
+
+def _render_pipeline_result(result: dict, ticker: str) -> None:
+    errors = result.get("errors", [])
+    original = result.get("articles_original_count", 0)
+    deduped = result.get("articles_after_dedup", 0)
+    analysis = result.get("analysis", {})
+    summaries = result.get("summaries", {})
+    filtered_articles = result.get("filtered_articles", [])
+
+    st.caption(
+        f"Pipeline: {original} articles → {deduped} unique stories → "
+        f"{len(summaries)} summaries → strategic analysis"
+    )
+
+    if errors:
+        with st.expander("Pipeline warnings", expanded=False):
+            for err in errors:
+                st.warning(err)
+
+    if not analysis:
+        st.warning(
+            "Strategic analysis could not be generated. "
+            "Check that `ANTHROPIC_API_KEY` is set and valid in your `.env` file."
+        )
+        if summaries:
+            _render_summaries_only(result)
+        return
+
+    # Overall narrative
+    st.info(analysis.get("overall_narrative", ""))
+
+    # Stock impact verdict
+    stock_impact = analysis.get("stock_impact", {})
+    verdict = str(stock_impact.get("verdict", "neutral")).lower()
+    reasoning = stock_impact.get("reasoning", "")
+    cfg = _VERDICT_CONFIG.get(verdict, _VERDICT_CONFIG["neutral"])
+    cfg["fn"](f"**{ticker} — {cfg['label']}:** {reasoning}")
+
+    # Risks and catalysts
+    col_risk, col_cat = st.columns(2)
+    with col_risk:
+        st.markdown("**Key Risks**")
+        for risk in analysis.get("key_risks", []):
+            st.markdown(f"- {risk}")
+    with col_cat:
+        st.markdown("**Key Catalysts**")
+        for catalyst in analysis.get("key_catalysts", []):
+            st.markdown(f"- {catalyst}")
+
+    # Industry and peers
+    with st.expander("Industry & Peer Analysis", expanded=False):
+        industry_impact = analysis.get("industry_impact", "")
+        if industry_impact:
+            st.markdown("**Industry Impact**")
+            st.markdown(industry_impact)
+        peers = analysis.get("peer_companies_affected", [])
+        if peers:
+            st.markdown("**Peers Affected**")
+            st.markdown("  ".join(f"`{p}`" for p in peers))
+
+    # Article summaries
+    if summaries:
+        with st.expander(f"Article Summaries ({len(summaries)} articles)", expanded=False):
+            for idx, summary_text in summaries.items():
+                if 0 <= idx < len(filtered_articles):
+                    title = filtered_articles[idx].get("title", f"Article {idx + 1}")
+                    publisher = filtered_articles[idx].get("publisher", {}).get("name", "")
+                    st.markdown(f"**{title}**")
+                    if publisher:
+                        st.caption(publisher)
+                    st.markdown(summary_text)
+                    st.markdown("---")
+
+
+def _render_ai_intelligence(ticker: str, articles: list[dict]) -> None:
+    st.markdown("---")
+    st.subheader("AI Intelligence")
+    st.caption(
+        "Powered by Gemini 2.0 Flash (deduplication + summarization) "
+        "and Claude Sonnet (strategic analysis). Results cached 30 min."
+    )
+
+    gemini_key = os.getenv("GEMINI_API_KEY", "")
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
+    gemini_ok = bool(gemini_key and gemini_key != "your_gemini_api_key_here")
+    anthropic_ok = bool(anthropic_key and anthropic_key != "your_anthropic_api_key_here")
+
+    if not gemini_ok and not anthropic_ok:
+        st.info(
+            "Set `GEMINI_API_KEY` and `ANTHROPIC_API_KEY` in your `.env` file "
+            "to enable AI analysis."
+        )
+        return
+
+    session_key = f"ai_result_{ticker}"
+
+    if st.button("Run AI Analysis", key="run_ai_btn"):
+        with st.spinner(
+            "Running multi-agent pipeline: deduplicating headlines, "
+            "scraping articles, summarizing, and analyzing… (20-40 seconds)"
+        ):
+            pipeline_result = run_pipeline(ticker, articles)
+        st.session_state[session_key] = pipeline_result
+
+    stored = st.session_state.get(session_key)
+    if stored:
+        _render_pipeline_result(stored, ticker)
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -135,6 +268,8 @@ def main() -> None:
 
     for i, article in enumerate(articles):
         _render_article(article, i)
+
+    _render_ai_intelligence(ticker_input, articles)
 
 
 main()
