@@ -18,6 +18,7 @@ _PAGES = [
     {"icon": "👁️",  "label": "Watchlist",   "path": "pages/3_watchlist.py"},
     {"icon": "📰", "label": "News",        "path": "pages/4_news.py"},
     {"icon": "🏦", "label": "Hedge Funds", "path": "pages/5_hedge_funds.py"},
+    {"icon": "⛓️", "label": "Option Chains", "path": "pages/6_option_chains.py"},
 ]
 
 _DEMO_TICKERS = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN"]
