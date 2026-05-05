@@ -4,13 +4,13 @@ from datetime import datetime, timezone
 
 import streamlit as st
 
-from data.reddit_fetcher import fetch_wsb_posts
-from data.wsb_sentiment import analyze_sentiment
+from backend.data.reddit_fetcher import fetch_wsb_posts
+from backend.data.wsb_sentiment import analyze_sentiment, _API_KEY
 
 st.set_page_config(page_title="WSB Reddit", page_icon="📡", layout="wide")
 
-_DB_PATH = os.path.join(os.path.dirname(__file__), "..", "db", "wsb.db")
-_SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "..", "db", "wsb_schema.sql")
+_DB_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "backend", "db", "wsb.db")
+_SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "backend", "db", "wsb_schema.sql")
 
 
 def _get_conn() -> sqlite3.Connection:
@@ -57,10 +57,12 @@ def _save_post(post: dict) -> None:
 
 
 def _load_posts(ticker: str) -> list[dict]:
+    # 1. Fetch the top 10 posts from Reddit for this ticker
     raw_posts = fetch_wsb_posts(ticker, limit=10)
     if not raw_posts:
         return []
 
+    # 2. Check which post_ids are already in the DB
     post_ids = [p["post_id"] for p in raw_posts]
     cached = _get_cached_posts(post_ids)
 
@@ -69,8 +71,10 @@ def _load_posts(ticker: str) -> list[dict]:
         pid = post["post_id"]
 
         if pid in cached:
+            # Post already analyzed — use DB data, skip Gemini call
             results.append(cached[pid])
         else:
+            # New post — run Gemini analysis and save to DB
             sentiment = analyze_sentiment(
                 title=post["title"],
                 body=post["body"],
@@ -135,6 +139,14 @@ def main() -> None:
     st.markdown("##### Reddit crowd sentiment · Powered by Gemini AI")
     st.markdown("---")
 
+    # Gemini key check
+    if not _API_KEY or _API_KEY == "your_gemini_api_key":
+        st.error(
+            "**Gemini API key not configured.** "
+            "Open `.env` and set `GEMINI_API_KEY=<your key>`."
+        )
+        return
+
     ticker_input = st.text_input(
         "Ticker Symbol",
         value=st.session_state.get("active_ticker", ""),
@@ -158,6 +170,7 @@ def main() -> None:
         )
         return
 
+    # Summary bar
     n_pos = sum(1 for p in posts if p.get("sentiment_label") == "positive")
     n_neg = sum(1 for p in posts if p.get("sentiment_label") == "negative")
     n_neu = sum(1 for p in posts if p.get("sentiment_label") == "neutral")

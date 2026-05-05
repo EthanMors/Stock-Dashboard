@@ -1,10 +1,15 @@
+import os
 import json
 import re
-import subprocess
+from datetime import datetime, timezone
 
-# This module now uses the 'gemini' CLI command for analysis as per user preference.
-# No local API key configuration is required if the CLI is already authenticated.
+import google.generativeai as genai
 
+_API_KEY = os.getenv("GEMINI_API_KEY", "")
+if _API_KEY:
+    genai.configure(api_key=_API_KEY)
+
+_MODEL_NAME = "gemini-1.5-flash"
 _PROMPT_TEMPLATE = """\
 You are a financial sentiment analyzer for Reddit posts about stocks.
 Analyze the sentiment of this Reddit post specifically regarding the stock ticker {ticker}.
@@ -24,29 +29,22 @@ Rules:
 
 def analyze_sentiment(title: str, body: str, ticker: str) -> dict:
     """Return {"sentiment_score": float, "sentiment_label": str}.
-    Uses the 'gemini' CLI for analysis."""
+    Returns neutral defaults on any failure."""
     _default = {"sentiment_score": 0.0, "sentiment_label": "neutral"}
+
+    if not _API_KEY:
+        return _default
 
     prompt = _PROMPT_TEMPLATE.format(
         ticker=ticker.upper(),
         title=title,
-        body=body[:2000],  # cap body length
+        body=body[:2000],  # cap body length to stay within token limits
     )
 
     try:
-        # Call the gemini CLI in non-interactive mode (-p)
-        # Note: 'gemini' must be in the PATH.
-        result = subprocess.run(
-            ["gemini", "-p", prompt],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            check=False
-        )
-        
-        raw = result.stdout.strip()
-        if not raw:
-            return _default
+        model = genai.GenerativeModel(_MODEL_NAME)
+        response = model.generate_content(prompt)
+        raw = response.text.strip()
 
         # Extract JSON object from the response using regex
         match = re.search(r"\{.*\}", raw, re.DOTALL)
@@ -59,6 +57,7 @@ def analyze_sentiment(title: str, body: str, ticker: str) -> dict:
 
         label = data.get("sentiment_label", "neutral")
         if label not in ("positive", "negative", "neutral"):
+            # Infer label from score if the model returned an unexpected string
             if score > 0.1:
                 label = "positive"
             elif score < -0.1:
@@ -69,5 +68,4 @@ def analyze_sentiment(title: str, body: str, ticker: str) -> dict:
         return {"sentiment_score": score, "sentiment_label": label}
 
     except Exception:
-        # If gemini CLI is missing or fails, we fall back to neutral
         return _default
