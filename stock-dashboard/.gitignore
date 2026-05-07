@@ -7,3 +7,4 @@ __pycache__/
 *.sqlite3
 .streamlit/secrets.toml
 webull_credentials.json
+webull_token_info.json

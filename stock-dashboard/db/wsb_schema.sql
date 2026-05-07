@@ -16,3 +16,23 @@ CREATE TABLE IF NOT EXISTS wsb_posts (
 );
 
 CREATE INDEX IF NOT EXISTS idx_wsb_ticker ON wsb_posts (ticker);
+
+CREATE TABLE IF NOT EXISTS daily_ticker_mentions (
+    date            TEXT NOT NULL,
+    ticker          TEXT NOT NULL,
+    mentions        INTEGER DEFAULT 0,
+    PRIMARY KEY (date, ticker)
+);
+
+CREATE TABLE IF NOT EXISTS wsb_ticker_summaries (
+    ticker          TEXT NOT NULL,
+    subreddits      TEXT NOT NULL,
+    sentiment_score REAL,
+    sentiment_label TEXT,
+    summary         TEXT,
+    post_ids        TEXT,
+    analyzed_at     TEXT NOT NULL,
+    PRIMARY KEY (ticker)
+);
+
+CREATE INDEX IF NOT EXISTS idx_wsb_summary_ticker ON wsb_ticker_summaries (ticker);

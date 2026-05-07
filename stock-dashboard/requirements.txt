@@ -8,4 +8,5 @@ lxml>=5.2.0
 python-dotenv>=1.0.0
 edgartools>=5.30.0
 scipy>=1.13.0
-webull
+webull-openapi-python-sdk>=0.1.18
+google-genai>=0.8.0
