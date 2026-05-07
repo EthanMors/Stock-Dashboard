@@ -45,3 +45,13 @@ def get_balance(account_id: str):
         return res.json()
     except Exception as exc:
         return {"error": str(exc)}
+
+def get_positions(account_id: str):
+    if not is_configured():
+        return []
+    try:
+        client = _make_client()
+        res = client.account_v2.get_account_position(account_id)
+        return res.json()
+    except Exception as exc:
+        return {"error": str(exc)}

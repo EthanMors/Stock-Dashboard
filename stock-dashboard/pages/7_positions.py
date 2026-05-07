@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from data.webull_positions import is_configured, get_account_list, get_balance, get_env_account_ids
+from data.webull_positions import is_configured, get_account_list, get_balance, get_env_account_ids, get_positions
 
 st.set_page_config(page_title="Portfolio Positions", layout="wide")
 st.title("Portfolio Positions")
@@ -54,7 +54,13 @@ if not accounts:
     st.warning("No balance data returned. Check your credentials.")
     st.stop()
 
+label_to_id: dict[str, str] = {v: k for k, v in id_to_label.items()}
+for aid in account_ids:
+    lbl = id_to_label.get(aid) or aid
+    label_to_id[lbl] = aid
+
 selected_label = st.selectbox("Select Account", list(accounts.keys()))
+selected_account_id = label_to_id.get(selected_label, selected_label)
 selected_balance = accounts[selected_label]
 
 balance_cols = [
@@ -72,3 +78,18 @@ if display:
 else:
     st.info("No balance fields available for this account.")
     st.json(selected_balance)
+
+st.subheader("Positions")
+with st.spinner("Fetching positions…"):
+    positions_result = get_positions(selected_account_id)
+
+if isinstance(positions_result, dict) and "error" in positions_result:
+    st.error(f"API error fetching positions: {positions_result['error']}")
+elif not positions_result:
+    st.info("No positions found for this account.")
+else:
+    if isinstance(positions_result, dict):
+        positions_result = [positions_result]
+    df_pos = pd.DataFrame(positions_result)
+    df_pos.columns = [c.replace("_", " ").title() for c in df_pos.columns]
+    st.dataframe(df_pos, use_container_width=True, hide_index=True)
