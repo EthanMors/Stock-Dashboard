@@ -18,8 +18,6 @@ if isinstance(result, dict) and "error" in result:
 elif not result:
     st.warning("No accounts returned. Check your credentials.")
 elif isinstance(result, list):
-    with st.expander("Raw account data (debug)"):
-        st.json(result)
     rows = []
     for account in result:
         account_id = (
@@ -35,7 +33,19 @@ elif isinstance(result, list):
         else:
             row = account
         rows.append(row)
-    st.dataframe(pd.json_normalize(rows), use_container_width=True, hide_index=True)
+    df = pd.json_normalize(rows)
+    cols = [
+        "account_id",
+        "account_number",
+        "account_label",
+        "balance_total_net_liquidation_value",
+        "balance_total_market_value",
+        "balance_total_cash_balance",
+        "balance_total_unrealized_profit_loss",
+        "balance_total_day_profit_loss",
+    ]
+    df = df[[c for c in cols if c in df.columns]]
+    st.dataframe(df, use_container_width=True, hide_index=True)
     st.caption(f"{len(rows)} account(s) returned.")
 else:
     st.json(result)
