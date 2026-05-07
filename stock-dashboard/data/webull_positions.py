@@ -6,10 +6,16 @@ load_dotenv()
 APP_KEY = os.getenv("WEBULL_APP_KEY", "")
 APP_SECRET = os.getenv("WEBULL_APP_SECRET", "")
 REGION_ID = os.getenv("WEBULL_REGION_ID", "us")
+ACCOUNT_ID1 = os.getenv("WEBULL_ACCOUNT_ID1", "")
+ACCOUNT_ID2 = os.getenv("WEBULL_ACCOUNT_ID2", "")
 
 
 def is_configured() -> bool:
     return bool(APP_KEY and APP_SECRET)
+
+
+def get_env_account_ids() -> list[str]:
+    return [aid for aid in [ACCOUNT_ID1, ACCOUNT_ID2] if aid]
 
 
 def _make_client():
