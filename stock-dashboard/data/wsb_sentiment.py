@@ -40,17 +40,27 @@ Rules:
 
 
 def _run_gemini(prompt: str) -> str:
-    """Call the Gemini CLI and return stdout. Returns empty string on any failure."""
+    """Call the Gemini CLI and return stdout. Returns empty string on any failure.
+
+    Prompt is passed via stdin rather than as a -p argument to avoid cmd.exe
+    interpreting angle brackets (<positive|negative|neutral>) as I/O redirects,
+    which silently produced empty output and rc=255.
+    The empty -p "" flag keeps the CLI in headless (non-interactive) mode.
+    """
     try:
         result = subprocess.run(
-            ["gemini.cmd", "-p", prompt],
+            ["gemini.cmd", "-p", ""],
+            input=prompt,
             capture_output=True,
             text=True,
             encoding="utf-8",
+            errors="replace",
             check=False,
             timeout=60,
         )
         return result.stdout.strip()
+    except subprocess.TimeoutExpired:
+        return ""
     except Exception:
         return ""
 
