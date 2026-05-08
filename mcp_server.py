@@ -392,9 +392,8 @@ async def check_ai_analysis(ticker: str) -> dict:
         ]:
             inp = p.locator(selector).first
             if await inp.count() > 0:
-                await inp.triple_click()
-                await inp.type(ticker)
-                await p.keyboard.press("Return")
+                await inp.fill(ticker)
+                await p.keyboard.press("Enter")
                 filled = True
                 break
 
@@ -425,9 +424,8 @@ async def check_ai_analysis(ticker: str) -> dict:
             if await wsb_inp.count() == 0:
                 wsb_inp = p.locator('input[type="text"]').first
             if await wsb_inp.count() > 0:
-                await wsb_inp.triple_click()
-                await wsb_inp.type(ticker)
-                await p.keyboard.press("Return")
+                await wsb_inp.fill(ticker)
+                await p.keyboard.press("Enter")
                 try:
                     await p.wait_for_load_state("networkidle", timeout=30_000)
                 except Exception:
