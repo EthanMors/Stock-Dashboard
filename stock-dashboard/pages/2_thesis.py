@@ -4,6 +4,7 @@ from typing import Optional
 import pandas as pd
 import streamlit as st
 
+from components.gemini_usage_bar import render_gemini_usage_bar
 from components.thesis_form import _get_conn, render_thesis_form, load_thesis
 from data.fetcher import get_stock_info, get_financials
 from data.calculator import (
@@ -15,6 +16,8 @@ from data.calculator import (
 )
 
 st.set_page_config(page_title="Thesis Tracker", layout="wide")
+
+render_gemini_usage_bar()
 
 _CONVICTION_COLOR = {"High": "#00c853", "Medium": "#ffd600", "Low": "#ff6d00"}
 _STATUS_OPTIONS = ["All", "Active", "Closed", "Watching"]

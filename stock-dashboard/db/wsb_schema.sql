@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS wsb_ticker_summaries (
     sentiment_score REAL,
     sentiment_label TEXT,
     summary         TEXT,
+    hype_level      INTEGER DEFAULT 0,
     post_ids        TEXT,
     analyzed_at     TEXT NOT NULL,
     PRIMARY KEY (ticker)

@@ -5,6 +5,7 @@ import yfinance as yf
 from datetime import datetime
 from scipy.stats import norm
 
+from components.gemini_usage_bar import render_gemini_usage_bar
 from data.options_agent import run_options_analysis
 
 RISK_FREE_RATE = 0.045
@@ -112,6 +113,9 @@ def fetch_chain(sym: str, exp: str):
 # ── Streamlit page ────────────────────────────────────────────────────────────
 
 st.set_page_config(page_title="Option Chain Viewer", layout="wide")
+
+render_gemini_usage_bar()
+
 st.title("Option Chain Viewer")
 
 default_ticker = st.session_state.get("active_ticker", "AAPL") or "AAPL"

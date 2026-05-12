@@ -1,6 +1,7 @@
 from datetime import datetime
 import streamlit as st
 
+from components.gemini_usage_bar import render_gemini_usage_bar
 from data.fetcher import get_stock_info, get_price_history, get_financials, get_earnings_history
 from data.calculator import (
     calc_pe_ratio, calc_ev_ebitda, calc_p_fcf, calc_peg_ratio,
@@ -15,6 +16,8 @@ from components.charts import (
 )
 
 st.set_page_config(page_title="Stock Metrics", layout="wide")
+
+render_gemini_usage_bar()
 
 
 # ---------------------------------------------------------------------------

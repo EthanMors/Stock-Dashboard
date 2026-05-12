@@ -1,8 +1,11 @@
 import streamlit as st
 
+from components.gemini_usage_bar import render_gemini_usage_bar
 from data.hedge_fund_fetcher import get_categorized_funds
 
 st.set_page_config(page_title="Hedge Funds", page_icon="🏦", layout="wide")
+
+render_gemini_usage_bar()
 
 
 def _render_sidebar() -> None:

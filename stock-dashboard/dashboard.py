@@ -3,6 +3,7 @@ from typing import Optional
 
 import streamlit as st
 
+from components.gemini_usage_bar import render_gemini_usage_bar
 from data.fetcher import get_stock_info
 
 st.set_page_config(
@@ -11,6 +12,8 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+render_gemini_usage_bar()
 
 _PAGES = [
     {"icon": "📊", "label": "Metrics",     "path": "pages/1_metrics.py"},

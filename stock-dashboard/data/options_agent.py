@@ -6,6 +6,8 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 
+from data.gemini_tracker import record_call
+
 
 # ── Gemini Pro runner ─────────────────────────────────────────────────────────
 
@@ -22,7 +24,10 @@ def _run_gemini_pro(prompt: str) -> tuple[str, str]:
             check=False,
             timeout=120,
         )
-        return result.stdout.strip(), result.stderr.strip()
+        output = result.stdout.strip()
+        if output:
+            record_call("pro")
+        return output, result.stderr.strip()
     except subprocess.TimeoutExpired:
         return "", "Timed out after 120s"
     except Exception as exc:

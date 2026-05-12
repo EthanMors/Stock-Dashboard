@@ -2,9 +2,12 @@ from datetime import datetime, timezone
 
 import streamlit as st
 
+from components.gemini_usage_bar import render_gemini_usage_bar
 from data.news_fetcher import PAYWALL_DOMAINS, FREE_DOMAINS, fetch_news, scrape_article
 
 st.set_page_config(page_title="News", layout="wide")
+
+render_gemini_usage_bar()
 
 
 # ---------------------------------------------------------------------------

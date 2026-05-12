@@ -1,8 +1,12 @@
 import streamlit as st
 import pandas as pd
+from components.gemini_usage_bar import render_gemini_usage_bar
 from data.webull_positions import is_configured, get_account_list, get_balance, get_env_account_ids, get_positions
 
 st.set_page_config(page_title="Portfolio Positions", layout="wide")
+
+render_gemini_usage_bar()
+
 st.title("Portfolio Positions")
 
 if not is_configured():

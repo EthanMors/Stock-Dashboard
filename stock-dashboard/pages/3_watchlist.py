@@ -4,11 +4,14 @@ from typing import Optional
 import pandas as pd
 import streamlit as st
 
+from components.gemini_usage_bar import render_gemini_usage_bar
 from components.thesis_form import _get_conn
 from data.fetcher import get_stock_info
 from data.calculator import calc_pe_ratio, calc_gross_margin
 
 st.set_page_config(page_title="Watchlist", layout="wide")
+
+render_gemini_usage_bar()
 
 _ALERT_THRESHOLD = 0.05  # 5% from alert price triggers highlight
 

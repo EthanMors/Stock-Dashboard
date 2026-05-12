@@ -5,10 +5,13 @@ from datetime import datetime, timezone
 
 import streamlit as st
 
+from components.gemini_usage_bar import render_gemini_usage_bar
 from data.reddit_fetcher import fetch_top_posts_for_ticker, fetch_daily_top_tickers, TOP_N
 from data.wsb_sentiment import analyze_sentiment, analyze_batch_sentiment
 
 st.set_page_config(page_title="WSB Reddit", page_icon="📡", layout="wide")
+
+render_gemini_usage_bar()
 
 _DB_PATH     = os.path.join(os.path.dirname(__file__), "..", "db", "wsb.db")
 _SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "..", "db", "wsb_schema.sql")
@@ -108,6 +111,7 @@ def _save_summary(
     sentiment_score: float,
     sentiment_label: str,
     summary: str,
+    hype_level: int,
     post_ids: list[str],
 ) -> None:
     conn = _get_conn()
@@ -115,14 +119,15 @@ def _save_summary(
         conn.execute(
             """INSERT OR REPLACE INTO wsb_ticker_summaries
                (ticker, subreddits, sentiment_score, sentiment_label,
-                summary, post_ids, analyzed_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                summary, hype_level, post_ids, analyzed_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 ticker.upper(),
                 json.dumps(subreddits),
                 sentiment_score,
                 sentiment_label,
                 summary,
+                hype_level,
                 json.dumps(post_ids),
                 datetime.now(timezone.utc).isoformat(),
             ),
@@ -185,6 +190,7 @@ def _load_data(ticker: str) -> tuple[list[dict], dict | None]:
             sentiment_score=batch_result["sentiment_score"],
             sentiment_label=batch_result["sentiment_label"],
             summary=batch_result["summary"],
+            hype_level=batch_result["hype_level"],
             post_ids=post_ids,
         )
         summary_row = _get_cached_summary(ticker)
@@ -200,6 +206,7 @@ def _render_summary_section(ticker: str, summary_row: dict) -> None:
     label   = summary_row.get("sentiment_label", "neutral")
     score   = summary_row.get("sentiment_score", 0.0)
     summary = summary_row.get("summary", "")
+    hype    = summary_row.get("hype_level", 0)
     icon    = _SENTIMENT_ICON.get(label, "🟡")
     color   = _SENTIMENT_COLOR.get(label, "#ffd600")
 
@@ -220,7 +227,7 @@ def _render_summary_section(ticker: str, summary_row: dict) -> None:
             margin-bottom: 16px;
         ">
             <div style="font-size: 1.4rem; font-weight: 700; color: {color}; margin-bottom: 6px;">
-                {icon} {label.capitalize()} Sentiment &mdash; Score: {score:+.2f}
+                {icon} {label.capitalize()} Sentiment &mdash; Score: {score:+.2f} &mdash; 🔥 Hype: {hype}/10
             </div>
             <div style="font-size: 0.95rem; color: #ccc; margin-bottom: 12px;">
                 {summary if summary else "No summary available."}

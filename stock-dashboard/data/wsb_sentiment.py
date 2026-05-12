@@ -2,40 +2,48 @@ import json
 import re
 import subprocess
 
+from data.gemini_tracker import record_call
+
 _PROMPT_TEMPLATE = """\
-You are a financial sentiment analyzer for Reddit posts about stocks.
-Analyze the sentiment of this Reddit post specifically regarding the stock ticker {ticker}.
+You are a specialized Reddit Sentiment Analyst (Persona: reddit-analyst).
+Analyze the sentiment of this Reddit post regarding the ticker {ticker}.
 
 Post Title: {title}
 Post Body: {body}
 
-Respond ONLY with a JSON object in this exact format with no extra text:
-{{"sentiment_score": <float between -1.0 and 1.0>, "sentiment_label": "<positive|negative|neutral>"}}
-
 Rules:
-- sentiment_score: -1.0 is extremely bearish, 0.0 is neutral, 1.0 is extremely bullish
-- sentiment_label: must be exactly one of "positive", "negative", or "neutral"
-- Base the analysis only on how the post discusses {ticker}, not other tickers mentioned
+1. **Ticker Context**: Focus ONLY on {ticker}. Ignore other tickers mentioned unless they are being compared.
+2. **Slang & Sarcasm**: Understand Reddit slang:
+   - "To the moon", "Diamond hands", "Rocket", "Tendies" = Bullish
+   - "Guh", "Bags", "Rugged", "Puts on my life" = Bearish
+   - "YOLO" = High conviction (check direction)
+   - Watch for sarcasm: self-deprecating loss porn is often Bearish sentiment but Bullish community "hype".
+3. **Sentiment Score**: -1.0 (Extreme Bearish) to 1.0 (Extreme Bullish). 0.0 is Neutral.
+4. **Sentiment Label**: Exactly "positive", "negative", or "neutral".
+
+Respond ONLY with a JSON object:
+{{"sentiment_score": <float>, "sentiment_label": "<label>"}}
 """
 
 _BATCH_PROMPT_TEMPLATE = """\
-You are a financial sentiment analyzer. You will be given up to 5 Reddit posts about the stock ticker {ticker}, sourced from multiple subreddits. Read all posts together and form a holistic view.
+You are a senior Financial Sentiment Analyst specializing in Reddit markets.
+Analyze these {ticker} related posts to form a holistic "sub-vibe".
 
 Posts:
 {posts_block}
 
-Respond ONLY with a JSON object in this exact format with no extra text:
-{{
-  "sentiment_score": <float between -1.0 and 1.0>,
-  "sentiment_label": "<positive|negative|neutral>",
-  "summary": "<2-4 sentence paragraph summarizing what Reddit is saying about {ticker}, written in plain English for an investor>"
-}}
+Guidelines:
+- **Weighting**: Give more weight to "DD" (Due Diligence) posts than memes.
+- **Clustering**: Identify if the sentiment is unified or if there's a "Bulls vs Bears" war.
+- **Retail Intent**: Is the community actually buying, or just joking/meming?
 
-Rules:
-- sentiment_score: -1.0 is extremely bearish, 0.0 is neutral, 1.0 is extremely bullish
-- sentiment_label: must be exactly one of "positive", "negative", or "neutral"
-- summary: must be 2-4 sentences, must mention specific themes from the posts, written as if briefing a retail investor
-- Base the entire analysis only on how the posts discuss {ticker}, not other tickers mentioned
+Respond ONLY with a JSON object:
+{{
+  "sentiment_score": <float -1.0 to 1.0>,
+  "sentiment_label": "<positive|negative|neutral>",
+  "summary": "<2-4 sentence expert summary of the community sentiment, mentioning specific themes>",
+  "hype_level": <integer 1-10>
+}}
 """
 
 
@@ -58,7 +66,10 @@ def _run_gemini(prompt: str) -> str:
             check=False,
             timeout=60,
         )
-        return result.stdout.strip()
+        output = result.stdout.strip()
+        if output:
+            record_call("flash")
+        return output
     except subprocess.TimeoutExpired:
         return ""
     except Exception:
@@ -84,6 +95,7 @@ def _parse_json_response(raw: str, require_summary: bool = False) -> dict | None
     result = {"sentiment_score": score, "sentiment_label": label}
     if require_summary:
         result["summary"] = str(data.get("summary", "")).strip()
+        result["hype_level"] = int(data.get("hype_level", 0))
     return result
 
 
@@ -103,7 +115,7 @@ def analyze_sentiment(title: str, body: str, ticker: str) -> dict:
 
 def analyze_batch_sentiment(posts: list[dict], ticker: str) -> dict:
     """Analyze a batch of posts together and return aggregate sentiment + summary."""
-    _default = {"sentiment_score": 0.0, "sentiment_label": "neutral", "summary": ""}
+    _default = {"sentiment_score": 0.0, "sentiment_label": "neutral", "summary": "", "hype_level": 0}
     if not posts:
         return _default
 

@@ -77,3 +77,12 @@ Webull API keys start in "Pending" status and must be authorized via the Webull 
 
 ## Use of AI for analysis
 Make sure whenever we are attempting to use AI for any type of analysis we have to implement it using the CLI version I do not have access to any API keys for gemini or claude so use the CLI on the pro tier.
+
+## Default Coding Workflow
+
+For all non-trivial coding tasks (new features, multi-file changes, bug fixes touching more than one file):
+
+1. **Always spawn the `codebase-planner` agent first** to analyze the codebase and write a detailed implementation plan to a markdown file (e.g., `plan_<feature>.md`). Do not implement anything yourself until the plan is written.
+2. **Then spawn the `spec-implementer` agent** (Haiku model), passing it the path to the plan file. It will execute the plan exactly as written.
+
+This two-agent workflow is the default for all coding work in this project. Skip it only for single-line or trivially obvious fixes (e.g., fixing a typo, changing a constant).
