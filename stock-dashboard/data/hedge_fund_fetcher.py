@@ -6,7 +6,15 @@ from typing import Optional, TypedDict
 import streamlit as st
 from edgar import get_filings, set_identity
 
-from data.cache import load_hedge_fund_cache, save_hedge_fund_cache
+from data.cache import (
+    load_hedge_fund_cache,
+    save_hedge_fund_cache,
+    get_all_hedge_fund_filings,
+    upsert_hedge_fund_filing,
+    get_stored_accession_numbers,
+    get_last_check_time,
+    save_last_check_time,
+)
 
 set_identity("ethanjosemorris@gmail.com")
 
@@ -129,26 +137,224 @@ def _apply_unit_correction(funds: list) -> list:
     return funds
 
 
-@st.cache_data(ttl=86400)
+def _is_filing_window() -> bool:
+    """Return True if today falls within 0–45 days after a quarter-end date.
+
+    Quarter ends used: March 31, June 30, September 30, December 31.
+    The 45-day window starts ON the quarter-end date (day 0) and includes the
+    45th day after it. Both the current year and the prior year are checked so
+    that the December 31 window carries into the following January and February.
+    """
+    today = datetime.date.today()
+    year = today.year
+    quarter_ends = [
+        datetime.date(year - 1, 12, 31),
+        datetime.date(year, 3, 31),
+        datetime.date(year, 6, 30),
+        datetime.date(year, 9, 30),
+        datetime.date(year, 12, 31),
+    ]
+    for qe in quarter_ends:
+        diff = (today - qe).days
+        if 0 <= diff <= 45:
+            return True
+    return False
+
+
+def _check_interval_hours() -> int:
+    """Return how many hours to wait between EDGAR polls based on filing window position.
+
+    - Not in window           → 999999 (effectively never)
+    - Days 1–30 of window     → 72 hours (check every 3 days; filings trickle in)
+    - Days 31–45 of window    → 24 hours (final stretch; more filings arrive daily)
+    """
+    today = datetime.date.today()
+    year = today.year
+    quarter_ends = [
+        datetime.date(year - 1, 12, 31),
+        datetime.date(year, 3, 31),
+        datetime.date(year, 6, 30),
+        datetime.date(year, 9, 30),
+        datetime.date(year, 12, 31),
+    ]
+    min_diff = None
+    for qe in quarter_ends:
+        diff = (today - qe).days
+        if 0 <= diff <= 45:
+            if min_diff is None or diff < min_diff:
+                min_diff = diff
+    if min_diff is None:
+        return 999999
+    if min_diff <= 30:
+        return 72
+    return 24
+
+
+def _fetch_fund_from_filing(filing, cik: str) -> Optional[FundProfile]:
+    """Download and parse one 13F-HR filing into a FundProfile dict.
+
+    Calls filing.obj() to download the full report — this is the expensive network
+    call. Returns None on any parsing failure. All funds (regardless of position count)
+    are stored so the portfolio overlap search can match against any 13F filer.
+
+    Args:
+        filing: An edgartools filing object (already has .cik, .company, .filing_date).
+        cik: The CIK string extracted from the filing before calling this function.
+
+    Returns:
+        A FundProfile TypedDict dict, or None if parsing fails.
+    """
+    try:
+        report = filing.obj()
+        if report is None:
+            return None
+
+        has_table = getattr(report, "has_infotable", True)
+        if not has_table:
+            return None
+
+        n_positions = getattr(report, "total_holdings", None)
+        if n_positions is None:
+            return None
+
+        total_val = _normalize_value(getattr(report, "total_value", None))
+        holdings = _parse_holdings(report)
+        name = (
+            getattr(report, "management_company_name", None)
+            or getattr(filing, "company", None)
+            or cik
+        )
+        report_period = str(getattr(report, "report_period", "") or "")
+        filing_date = str(
+            getattr(report, "filing_date", "")
+            or getattr(filing, "filing_date", "")
+            or ""
+        )
+
+        return FundProfile(
+            name=str(name),
+            cik=cik,
+            report_period=report_period,
+            filing_date=filing_date,
+            total_holdings=int(n_positions),
+            total_value=total_val,
+            holdings=holdings,
+        )
+    except Exception:
+        return None
+
+
+def refresh_hedge_fund_db() -> int:
+    """Smart EDGAR poll: fetch new/updated 13F-HR filings and upsert them into the DB.
+
+    Returns the number of fund rows updated (0 if skipped or nothing new found).
+
+    Algorithm:
+    1. If not in the 45-day filing window, return 0 immediately.
+    2. If the last poll was within _check_interval_hours() hours, return 0 (too soon).
+    3. Fetch the first _MAX_FILINGS_TO_SCAN filings from EDGAR (header-only, no .obj()).
+    4. Compare each filing's accession_number against what is stored in the DB.
+    5. For each CIK with a new or changed accession_number, download the full report
+       via _fetch_fund_from_filing() and upsert it.
+    6. Record the poll timestamp and count via save_last_check_time().
+    7. Return the count of updated funds.
+    """
+    if not _is_filing_window():
+        return 0
+
+    interval_hours = _check_interval_hours()
+    last_check = get_last_check_time()
+    if last_check is not None:
+        import datetime as _dt_mod
+        elapsed = (_dt_mod.datetime.utcnow() - last_check).total_seconds() / 3600
+        if elapsed < interval_hours:
+            return 0
+
+    try:
+        filings_batch = get_filings(form="13F-HR")
+    except Exception:
+        return 0
+
+    stored = get_stored_accession_numbers()
+    seen_ciks: set = set()
+    updated_count = 0
+    scanned = 0
+
+    for filing in filings_batch:
+        if scanned >= _MAX_FILINGS_TO_SCAN:
+            break
+        scanned += 1
+
+        cik = str(getattr(filing, "cik", "") or "")
+        if not cik or cik in seen_ciks:
+            continue
+        seen_ciks.add(cik)
+
+        # Get accession_number without downloading full report
+        accession_number = str(getattr(filing, "accession_number", "") or "")
+        if not accession_number:
+            continue
+
+        stored_accession = stored.get(cik)
+        if stored_accession == accession_number:
+            # Already have this exact filing in DB — skip the expensive .obj() call
+            continue
+
+        # New or updated filing — download and parse
+        fund_profile = _fetch_fund_from_filing(filing, cik)
+        if fund_profile is None:
+            continue
+
+        upsert_hedge_fund_filing(fund_profile, accession_number)
+        updated_count += 1
+
+    save_last_check_time(count=updated_count)
+    return updated_count
+
+
+def get_all_funds_from_db() -> list:
+    """Return all 13F filers stored in the DB as a list of FundProfile dicts."""
+    return get_all_hedge_fund_filings()
+
+
+def get_concentrated_funds_from_db(threshold: int = _CONCENTRATED_THRESHOLD) -> list:
+    """Return only funds with fewer than threshold positions from the DB."""
+    return [f for f in get_all_hedge_fund_filings() if f["total_holdings"] < threshold]
+
+
+@st.cache_data(ttl=3600)
 def get_concentrated_funds(
     max_scan: int = _MAX_FILINGS_TO_SCAN,
     threshold: int = _CONCENTRATED_THRESHOLD,
 ) -> list:
-    """
-    Scan recent 13F-HR filings and return all concentrated funds (< threshold positions).
-    Results are cached in SQLite per calendar day and in Streamlit's in-memory cache.
-    """
-    cached = load_hedge_fund_cache(_CACHE_KEY)
-    if cached is not None:
-        return cached
+    """Return all concentrated funds (< threshold positions) from the smart DB cache.
 
+    Primary flow:
+    1. Call refresh_hedge_fund_db() — this is a no-op if outside the filing window
+       or polled too recently; otherwise it downloads only new/changed filings.
+    2. Read all funds from the DB via get_all_funds_from_db().
+    3. If the DB is empty (first-ever run), fall back to a full EDGAR scan to
+       populate the DB initially, then return those results.
+
+    The @st.cache_data(ttl=3600) wrapper prevents repeated DB reads within the
+    same Streamlit session (reduced from 86400s so changes propagate in ~1 hour).
+    """
+    # Step 1: Smart poll — only actually fetches when needed
+    refresh_hedge_fund_db()
+
+    # Step 2: Read concentrated funds from DB (filters < threshold at read time)
+    funds = get_concentrated_funds_from_db(threshold)
+    if funds:
+        return funds
+
+    # Step 3: DB is empty — do initial full population (legacy scan path)
     try:
         filings_batch = get_filings(form="13F-HR")
     except Exception:
         return []
 
     seen_ciks: set = set()
-    concentrated = []
+    all_parsed = []
     scanned = 0
 
     for filing in filings_batch:
@@ -161,49 +367,21 @@ def get_concentrated_funds(
             continue
         seen_ciks.add(cik)
 
-        try:
-            report = filing.obj()
-            if report is None:
-                continue
-
-            has_table = getattr(report, "has_infotable", True)
-            if not has_table:
-                continue
-
-            n_positions = getattr(report, "total_holdings", None)
-            if n_positions is None or n_positions >= threshold:
-                continue
-
-            total_val = _normalize_value(getattr(report, "total_value", None))
-            holdings = _parse_holdings(report)
-            name = (
-                getattr(report, "management_company_name", None)
-                or getattr(filing, "company", None)
-                or cik
-            )
-            report_period = str(getattr(report, "report_period", "") or "")
-            filing_date = str(getattr(report, "filing_date", "") or getattr(filing, "filing_date", "") or "")
-
-            concentrated.append(
-                FundProfile(
-                    name=str(name),
-                    cik=cik,
-                    report_period=report_period,
-                    filing_date=filing_date,
-                    total_holdings=int(n_positions),
-                    total_value=total_val,
-                    holdings=holdings,
-                )
-            )
-        except Exception:
+        accession_number = str(getattr(filing, "accession_number", "") or "")
+        fund_profile = _fetch_fund_from_filing(filing, cik)
+        if fund_profile is None:
             continue
 
-    concentrated = _apply_unit_correction(concentrated)
+        all_parsed.append(fund_profile)
+        if accession_number:
+            upsert_hedge_fund_filing(fund_profile, accession_number)
 
-    if concentrated:
-        save_hedge_fund_cache(_CACHE_KEY, concentrated)
+    all_parsed = _apply_unit_correction(all_parsed)
 
-    return concentrated
+    if all_parsed:
+        save_last_check_time(count=len(all_parsed))
+
+    return [f for f in all_parsed if f["total_holdings"] < threshold]
 
 
 @st.cache_data(ttl=86400)

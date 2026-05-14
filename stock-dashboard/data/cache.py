@@ -25,6 +25,26 @@ def _get_connection() -> sqlite3.Connection:
             cached_date TEXT NOT NULL
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS hedge_fund_filings (
+            cik              TEXT PRIMARY KEY,
+            name             TEXT NOT NULL,
+            accession_number TEXT NOT NULL,
+            report_period    TEXT NOT NULL,
+            filing_date      TEXT NOT NULL,
+            total_holdings   INTEGER NOT NULL,
+            total_value      REAL NOT NULL,
+            holdings_json    TEXT NOT NULL,
+            fetched_at       TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS hedge_fund_check_log (
+            id           INTEGER PRIMARY KEY CHECK (id = 1),
+            last_checked TEXT NOT NULL,
+            last_count   INTEGER NOT NULL DEFAULT 0
+        )
+    """)
     conn.commit()
     return conn
 
@@ -114,3 +134,125 @@ def load_hedge_fund_cache(key: str) -> Optional[list]:
         return json.loads(data_json)
     except json.JSONDecodeError:
         return None
+
+
+def get_all_hedge_fund_filings() -> list:
+    """Return all rows from hedge_fund_filings as a list of FundProfile-shaped dicts."""
+    conn = _get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT cik, name, accession_number, report_period, filing_date,
+                   total_holdings, total_value, holdings_json, fetched_at
+            FROM hedge_fund_filings
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+
+    result = []
+    for row in rows:
+        (cik, name, accession_number, report_period, filing_date,
+         total_holdings, total_value, holdings_json, fetched_at) = row
+        try:
+            holdings = json.loads(holdings_json)
+        except (json.JSONDecodeError, TypeError):
+            holdings = []
+        result.append({
+            "cik": cik,
+            "name": name,
+            "accession_number": accession_number,
+            "report_period": report_period,
+            "filing_date": filing_date,
+            "total_holdings": total_holdings,
+            "total_value": total_value,
+            "holdings": holdings,
+            "fetched_at": fetched_at,
+        })
+    return result
+
+
+def upsert_hedge_fund_filing(fund: dict, accession_number: str) -> None:
+    """Insert or update one fund row in hedge_fund_filings."""
+    conn = _get_connection()
+    try:
+        conn.execute(
+            """
+            INSERT INTO hedge_fund_filings
+                (cik, name, accession_number, report_period, filing_date,
+                 total_holdings, total_value, holdings_json, fetched_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(cik) DO UPDATE SET
+                name             = excluded.name,
+                accession_number = excluded.accession_number,
+                report_period    = excluded.report_period,
+                filing_date      = excluded.filing_date,
+                total_holdings   = excluded.total_holdings,
+                total_value      = excluded.total_value,
+                holdings_json    = excluded.holdings_json,
+                fetched_at       = excluded.fetched_at
+            """,
+            (
+                str(fund.get("cik", "")),
+                str(fund.get("name", "")),
+                str(accession_number),
+                str(fund.get("report_period", "")),
+                str(fund.get("filing_date", "")),
+                int(fund.get("total_holdings", 0)),
+                float(fund.get("total_value", 0.0)),
+                json.dumps(fund.get("holdings", [])),
+                datetime.utcnow().isoformat(),
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_stored_accession_numbers() -> dict:
+    """Return {cik: accession_number} for every row in hedge_fund_filings."""
+    conn = _get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT cik, accession_number FROM hedge_fund_filings"
+        ).fetchall()
+    finally:
+        conn.close()
+    return {row[0]: row[1] for row in rows}
+
+
+def get_last_check_time() -> Optional[datetime]:
+    """Return the datetime of the last EDGAR poll, or None if never checked."""
+    conn = _get_connection()
+    try:
+        row = conn.execute(
+            "SELECT last_checked FROM hedge_fund_check_log WHERE id = 1"
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if row is None:
+        return None
+    try:
+        return datetime.fromisoformat(row[0])
+    except (ValueError, TypeError):
+        return None
+
+
+def save_last_check_time(count: int) -> None:
+    """Upsert the hedge_fund_check_log row with the current UTC time and count."""
+    conn = _get_connection()
+    try:
+        conn.execute(
+            """
+            INSERT INTO hedge_fund_check_log (id, last_checked, last_count)
+            VALUES (1, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                last_checked = excluded.last_checked,
+                last_count   = excluded.last_count
+            """,
+            (datetime.utcnow().isoformat(), int(count)),
+        )
+        conn.commit()
+    finally:
+        conn.close()

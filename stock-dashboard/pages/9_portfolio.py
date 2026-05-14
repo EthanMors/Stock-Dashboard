@@ -27,6 +27,7 @@ from data.portfolio_cache import (
     get_latest_options_analysis,
     is_options_analysis_fresh,
 )
+from data.hedge_fund_fetcher import get_all_funds_from_db, refresh_hedge_fund_db
 
 st.set_page_config(page_title="Portfolio", layout="wide")
 
@@ -66,6 +67,145 @@ def _extract_ticker(position: dict) -> str:
         if val and isinstance(val, str):
             return val.upper().strip()
     return ""
+
+
+def _get_portfolio_tickers(positions: list) -> list:
+    """Extract unique uppercase ticker strings from a list of position dicts.
+
+    Iterates each position and tries each key in _TICKER_FIELD_CANDIDATES in order.
+    Returns a list of unique, non-empty, uppercased ticker strings. Preserves
+    insertion order (first occurrence of each ticker wins).
+    """
+    seen: set = set()
+    result: list = []
+    for pos in positions:
+        t = _extract_ticker(pos)
+        if t and t not in seen:
+            seen.add(t)
+            result.append(t)
+    return result
+
+
+def _find_overlapping_funds(portfolio_tickers: list) -> list:
+    """Find concentrated hedge funds that hold any ticker in portfolio_tickers.
+
+    Calls get_all_funds_from_db() to read from the smart cache DB. For each fund,
+    checks which of its holdings' tickers are in the portfolio. Returns only funds
+    with at least one overlapping holding, sorted by overlap_count descending.
+
+    Args:
+        portfolio_tickers: List of uppercase ticker strings (e.g. ['AAPL', 'TSLA']).
+
+    Returns:
+        List of dicts, each with keys:
+            name (str), cik (str), report_period (str), filing_date (str),
+            total_value (float), overlapping_holdings (list of HoldingRow dicts),
+            overlap_count (int).
+    """
+    if not portfolio_tickers:
+        return []
+
+    portfolio_set = set(t.upper() for t in portfolio_tickers)
+
+    try:
+        refresh_hedge_fund_db()
+        all_funds = get_all_funds_from_db()
+    except Exception:
+        return []
+
+    overlapping = []
+    for fund in all_funds:
+        holdings = fund.get("holdings", [])
+        matches = [
+            h for h in holdings
+            if str(h.get("ticker", "")).upper() in portfolio_set
+        ]
+        if not matches:
+            continue
+        overlapping.append({
+            "name": fund.get("name", ""),
+            "cik": fund.get("cik", ""),
+            "report_period": fund.get("report_period", ""),
+            "filing_date": fund.get("filing_date", ""),
+            "total_value": fund.get("total_value", 0.0),
+            "overlapping_holdings": matches,
+            "overlap_count": len(matches),
+        })
+
+    overlapping.sort(key=lambda x: x["overlap_count"], reverse=True)
+    return overlapping
+
+
+def _render_hedge_fund_overlap(positions: list) -> None:
+    """Render the Hedge Fund Overlap section for the given positions list.
+
+    Shows a table of overlapping holdings inside an st.expander for each
+    concentrated hedge fund that holds any ticker from the current portfolio.
+    Displays a friendly info message when no overlaps are found.
+
+    Args:
+        positions: Raw list of position dicts from get_positions(account_id).
+    """
+    portfolio_tickers = _get_portfolio_tickers(positions)
+
+    if not portfolio_tickers:
+        st.info("No ticker symbols found in your positions — cannot check hedge fund overlap.")
+        return
+
+    with st.spinner("Checking hedge fund holdings…"):
+        overlapping = _find_overlapping_funds(portfolio_tickers)
+
+    if not overlapping:
+        st.info(
+            "No concentrated hedge funds (< 15 positions) hold any of your current positions "
+            "based on the most recent 13F-HR filings in the database. "
+            "The database is populated from SEC EDGAR during the 45-day filing window after each quarter end."
+        )
+        return
+
+    st.caption(
+        f"Checking {len(portfolio_tickers)} portfolio ticker(s) against "
+        f"{len(overlapping)} concentrated fund(s) with overlapping positions."
+    )
+
+    for fund in overlapping:
+        overlap_count = fund["overlap_count"]
+        fund_name = fund["name"] or fund["cik"]
+        header = f"{fund_name} — {overlap_count} shared position{'s' if overlap_count != 1 else ''}"
+
+        with st.expander(header, expanded=False):
+            meta_col1, meta_col2, meta_col3 = st.columns(3)
+            meta_col1.metric("Report Period", fund["report_period"] or "—")
+            meta_col2.metric("Filing Date", fund["filing_date"] or "—")
+
+            total_val = fund["total_value"]
+            if total_val >= 1e9:
+                val_str = f"${total_val / 1e9:.2f}B"
+            elif total_val >= 1e6:
+                val_str = f"${total_val / 1e6:.2f}M"
+            elif total_val >= 1e3:
+                val_str = f"${total_val / 1e3:.2f}K"
+            else:
+                val_str = f"${total_val:,.0f}"
+            meta_col3.metric("Fund Portfolio Value", val_str)
+
+            st.markdown("**Overlapping Holdings**")
+            rows = []
+            for h in fund["overlapping_holdings"]:
+                rows.append({
+                    "Ticker": str(h.get("ticker", "")).upper() or "—",
+                    "Issuer": str(h.get("issuer", "")) or "—",
+                    "% of Fund": f"{h.get('pct_of_portfolio', 0.0):.1f}%",
+                    "Value": (
+                        f"${h.get('value', 0.0) / 1e6:.2f}M"
+                        if h.get("value", 0.0) >= 1e6
+                        else f"${h.get('value', 0.0):,.0f}"
+                    ),
+                    "Type": str(h.get("put_call", "")) or "Equity",
+                })
+            if rows:
+                overlap_df = pd.DataFrame(rows)
+                st.dataframe(overlap_df, use_container_width=True, hide_index=True)
 
 
 def _sentiment_color(label: str) -> str:
@@ -346,8 +486,46 @@ for pos in positions_result:
         tickers.append(t)
 
 df_pos = pd.DataFrame(positions_result)
+
+# Drop unwanted columns before renaming
+_drop_raw = ("positionid", "instrumenttype")
+_drop_cols = [c for c in df_pos.columns if c.lower().replace("_", "") in _drop_raw]
+df_pos = df_pos.drop(columns=_drop_cols, errors="ignore")
+
+# Convert proportion to percentage string
+for _col in [c for c in df_pos.columns if c.lower() == "proportion"]:
+    df_pos[_col] = (df_pos[_col].astype(float) * 100).round(2).astype(str) + "%"
+
+# Reorder: symbol leftmost, currency rightmost
+_sym_candidates = {"symbol", "ticker", "tickersymbol", "stocksymbol", "sym"}
+_sym_col = next((c for c in df_pos.columns if c.lower().replace("_", "") in _sym_candidates), None)
+_cur_col = next((c for c in df_pos.columns if c.lower() == "currency"), None)
+_middle = [c for c in df_pos.columns if c not in (_sym_col, _cur_col)]
+df_pos = df_pos[[c for c in ([_sym_col] + _middle + [_cur_col]) if c is not None]]
+
 df_pos.columns = [c.replace("_", " ").title() for c in df_pos.columns]
-st.dataframe(df_pos, use_container_width=True, hide_index=True)
+
+def _color_pnl(val):
+    try:
+        v = float(val)
+        if v > 0:
+            return "color: #2ecc71"
+        if v < 0:
+            return "color: #e74c3c"
+    except (TypeError, ValueError):
+        pass
+    return ""
+
+# Only color P&L and rate columns — not neutral positives like market value or quantity
+_pnl_keywords = ("profit", "loss", "return", "change", "rate")
+_pnl_cols = [c for c in df_pos.columns if any(kw in c.lower() for kw in _pnl_keywords)]
+styled = df_pos.style
+if _pnl_cols:
+    styled = styled.map(_color_pnl, subset=_pnl_cols)
+_row_height = 35
+_header_height = 38
+st.dataframe(styled, use_container_width=True, hide_index=True,
+             height=_header_height + _row_height * len(df_pos))
 
 if not tickers:
     st.warning("Could not extract ticker symbols from position data — news analysis unavailable.")
@@ -640,7 +818,8 @@ def _load_or_analyze_options(
     price: float,
     calls_df,
     puts_df,
-    display_df,
+    calls_display_df,
+    puts_display_df,
 ) -> dict:
     """Return options analysis from session state → DB cache → Gemini (in that order)."""
     sess_key = _opt_session_key(ticker, expiry, opt_type)
@@ -654,7 +833,7 @@ def _load_or_analyze_options(
         st.session_state.options_results[sess_key] = entry
         return entry
 
-    result = run_options_analysis(ticker, price, expiry, opt_type, calls_df, puts_df, display_df)
+    result = run_options_analysis(ticker, price, expiry, opt_type, calls_df, puts_df, calls_display_df, puts_display_df)
     if result and "_error" not in result:
         save_options_analysis(ticker, expiry, opt_type, price, result)
     from datetime import datetime as _dt, timezone as _tz
@@ -676,7 +855,7 @@ def _options_analysis_ui(tickers: list[str]) -> None:
             key="opt_ticker_select",
         )
     with oa_col_b:
-        opt_analyze_all = st.button("Analyze All (Calls)", use_container_width=True, key="opt_analyze_all_btn")
+        opt_analyze_all = st.button("Analyze All Positions", use_container_width=True, key="opt_analyze_all_btn")
 
     if opt_analyze_all:
         oa_progress = st.progress(0, text="Starting options analysis…")
@@ -691,8 +870,8 @@ def _options_analysis_ui(tickers: list[str]) -> None:
                 oa_progress.progress((idx + 1) / len(tickers), text=f"Skipped {t} — no options listed")
                 continue
             nearest_expiry = t_expirations[0]
-            sess_key = _opt_session_key(t, nearest_expiry, "call")
-            cached_db = get_latest_options_analysis(t, nearest_expiry, "call")
+            sess_key = _opt_session_key(t, nearest_expiry, "put")
+            cached_db = get_latest_options_analysis(t, nearest_expiry, "put")
             if cached_db is not None and is_options_analysis_fresh(cached_db.get("analyzed_at", "")):
                 if sess_key not in st.session_state.options_results:
                     st.session_state.options_results[sess_key] = {**cached_db, "from_db": True}
@@ -700,14 +879,15 @@ def _options_analysis_ui(tickers: list[str]) -> None:
                 continue
             try:
                 t_calls, t_puts = _fetch_chain(t, nearest_expiry)
-                t_display = _build_options_display_df(t_calls, t_price, nearest_expiry, "call")
+                t_calls_display = _build_options_display_df(t_calls, t_price, nearest_expiry, "call")
+                t_puts_display  = _build_options_display_df(t_puts,  t_price, nearest_expiry, "put")
             except Exception:
                 oa_progress.progress((idx + 1) / len(tickers), text=f"Skipped {t} — chain fetch failed")
                 continue
             oa_progress.progress(idx / len(tickers), text=f"Analyzing {t} with Gemini…")
-            result = run_options_analysis(t, t_price, nearest_expiry, "call", t_calls, t_puts, t_display)
+            result = run_options_analysis(t, t_price, nearest_expiry, "put", t_calls, t_puts, t_calls_display, t_puts_display)
             if result and "_error" not in result:
-                save_options_analysis(t, nearest_expiry, "call", t_price, result)
+                save_options_analysis(t, nearest_expiry, "put", t_price, result)
             from datetime import datetime as _dt2, timezone as _tz2
             entry = {**result, "analyzed_at": _dt2.now(_tz2.utc).strftime("%Y-%m-%dT%H:%M:%S"), "from_db": False}
             st.session_state.options_results[sess_key] = entry
@@ -745,9 +925,11 @@ def _options_analysis_ui(tickers: list[str]) -> None:
                 opt_calls_df = opt_puts_df = None
 
             if opt_calls_df is not None:
-                opt_raw = opt_calls_df if opt_type == "call" else opt_puts_df
                 with st.spinner("Calculating Greeks…"):
-                    opt_display_df = _build_options_display_df(opt_raw, opt_price, opt_expiry, opt_type)
+                    opt_calls_display_df = _build_options_display_df(opt_calls_df, opt_price, opt_expiry, "call")
+                    opt_puts_display_df  = _build_options_display_df(opt_puts_df,  opt_price, opt_expiry, "put")
+
+                opt_display_df = opt_calls_display_df if opt_type == "call" else opt_puts_display_df
 
                 if not opt_display_df.empty:
                     st.caption(
@@ -762,14 +944,14 @@ def _options_analysis_ui(tickers: list[str]) -> None:
                     with run_col:
                         opt_run_clicked = st.button("▶ Run Gemini Analysis", use_container_width=True, key="opt_run_btn")
                     with hint_col:
-                        st.caption("Uses Gemini 2.5 Pro · ~30–90s · Results cached 4 hours")
+                        st.caption("Uses Gemini 2.5 Pro · ~30–90s · Results cached 4 hours · analyzes both calls & puts")
 
                     if opt_run_clicked:
                         st.session_state.options_results.pop(opt_sess_key, None)
-                        with st.spinner("Gemini 2.5 Pro analyzing the option chain…"):
+                        with st.spinner("Gemini 2.5 Pro analyzing the full option chain…"):
                             entry = _load_or_analyze_options(
                                 opt_ticker, opt_expiry, opt_type, opt_price,
-                                opt_calls_df, opt_puts_df, opt_display_df,
+                                opt_calls_df, opt_puts_df, opt_calls_display_df, opt_puts_display_df,
                             )
 
                     if opt_sess_key in st.session_state.options_results:
@@ -824,3 +1006,10 @@ def _options_analysis_ui(tickers: list[str]) -> None:
 
 
 _options_analysis_ui(tickers)
+
+# ---------------------------------------------------------------------------
+# Hedge Fund Overlap
+# ---------------------------------------------------------------------------
+st.markdown("---")
+st.subheader("Hedge Fund Overlap")
+_render_hedge_fund_overlap(positions_result)

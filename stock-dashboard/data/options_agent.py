@@ -174,8 +174,8 @@ def _high_oi_strikes(calls_df: pd.DataFrame, puts_df: pd.DataFrame, top_n: int =
 # ── Prompt builder ────────────────────────────────────────────────────────────
 
 _PROMPT = """\
-You are an expert options market analyst and derivatives strategist.
-Your task is to analyze the option chain data below and produce a thorough, \
+You are an expert options market analyst and derivatives strategist analyzing a long equity portfolio.
+Your task is to analyze the FULL option chain data below — both calls and puts — and produce a thorough, \
 reasoned assessment of what the options market is signaling about the underlying stock's \
 near-term direction and risk profile.
 
@@ -183,10 +183,11 @@ near-term direction and risk profile.
 Ticker:         {ticker}
 Current Price:  ${price:.2f}
 Expiration:     {expiry} ({dte} days to expiry)
-Contract Type:  {opt_type_label}
 Risk-Free Rate: 4.5%
+Portfolio Context: These are long equity positions. Put-side analysis is especially important — \
+puts reveal where hedging demand, downside fear, and institutional protection are concentrated.
 
-=== COMPUTED METRICS (full chain, not just displayed rows) ===
+=== COMPUTED METRICS (full chain, both sides) ===
 Put/Call OI Ratio:     {pcr_oi}   (total call OI: {call_oi:,} | total put OI: {put_oi:,})
 Put/Call Volume Ratio: {pcr_vol}  (total call vol: {call_vol:,} | total put vol: {put_vol:,})
 Max Pain Strike:       ${max_pain}  (current price is ${pain_dist:+.2f} from max pain)
@@ -199,14 +200,23 @@ Top Call OI Strikes (potential resistance / call walls):
 Top Put OI Strikes (potential support / put floors):
 {top_put_oi}
 
-=== DISPLAYED OPTION CHAIN (nearest {n_contracts} ITM + {n_contracts} OTM {opt_type_label}) ===
-{chain_table}
+=== CALLS CHAIN (nearest {n_contracts} ITM + {n_contracts} OTM calls) ===
+{calls_chain_table}
+
+=== PUTS CHAIN (nearest {n_contracts} ITM + {n_contracts} OTM puts) ===
+{puts_chain_table}
 
 === YOUR ANALYSIS TASK ===
-Analyze EVERY metric above in depth. For each one, explain:
+Analyze EVERY metric above in depth using BOTH chains. For each metric, explain:
   1. What the raw number means mechanically
   2. What market participants are likely doing to produce this reading
   3. What it implies for the underlying stock's price direction or volatility
+
+For the put chain specifically:
+  - Identify strikes with high OI or volume that act as support floors
+  - Flag any strikes where put volume significantly exceeds OI (fresh downside positioning)
+  - Compare put IV levels across strikes to identify where fear is concentrated
+  - Assess whether put buying looks like institutional hedging (deep OTM, high OI) or speculative (near ATM, high volume)
 
 Then synthesize everything into a directional view with confidence and key caveats.
 
@@ -221,14 +231,14 @@ Respond ONLY with a single JSON object (no markdown fences, no preamble):
   "directional_bias": "<bullish|bearish|neutral>",
   "bias_strength": "<strong|moderate|weak>",
   "confidence": "<high|medium|low>",
-  "iv_analysis": "<thorough analysis of implied volatility level and skew>",
+  "iv_analysis": "<thorough analysis of implied volatility level and skew across both chains>",
   "pcr_analysis": "<analysis of put/call ratios by OI and volume and what positioning implies>",
   "max_pain_analysis": "<what the max pain level means, distance from spot, what happens as expiry nears>",
-  "gamma_exposure_analysis": "<dealer gamma position, direction of hedging flows, pinning or vol-amplification risk>",
-  "key_levels": "<specific strikes acting as support or resistance based on OI concentration, and why>",
-  "unusual_activity": "<any strikes where volume significantly exceeds open interest, suggesting fresh positioning — or note if none>",
+  "gamma_exposure_analysis": "<dealer gamma position across both chains, direction of hedging flows, pinning or vol-amplification risk>",
+  "key_levels": "<specific strikes on both call and put sides acting as support or resistance based on OI concentration, and why>",
+  "unusual_activity": "<any strikes on either chain where volume significantly exceeds open interest, suggesting fresh positioning — or note if none>",
   "risk_factors": "<3-4 specific scenarios that would invalidate the directional bias>",
-  "summary": "<3-5 sentence narrative tying all signals together into one clear conclusion about what the options market is pricing in>"
+  "summary": "<3-5 sentence narrative tying all signals together into one clear conclusion about what the options market is pricing in, with specific attention to downside risk for a long holder>"
 }}
 """
 
@@ -237,14 +247,13 @@ def _build_prompt(
     ticker: str,
     price: float,
     expiry: str,
-    opt_type: str,
     calls_df: pd.DataFrame,
     puts_df: pd.DataFrame,
-    display_df: pd.DataFrame,
+    calls_display_df: pd.DataFrame,
+    puts_display_df: pd.DataFrame,
     metrics: dict,
 ) -> str:
     dte = (datetime.strptime(expiry, "%Y-%m-%d") - datetime.today()).days
-    opt_type_label = "Calls" if opt_type == "call" else "Puts"
 
     pcr_oi  = f"{metrics['pcr_oi']:.3f}"  if metrics.get("pcr_oi")  is not None else "N/A"
     pcr_vol = f"{metrics['pcr_vol']:.3f}" if metrics.get("pcr_vol") is not None else "N/A"
@@ -266,15 +275,15 @@ def _build_prompt(
     top_call_oi = fmt_oi_strikes(metrics.get("top_call_oi_strikes", []))
     top_put_oi  = fmt_oi_strikes(metrics.get("top_put_oi_strikes",  []))
 
-    chain_table = display_df.to_string(index=False)
-    n_contracts = max(1, len(display_df) // 2)
+    calls_chain_table = calls_display_df.to_string(index=False)
+    puts_chain_table  = puts_display_df.to_string(index=False)
+    n_contracts = max(1, len(calls_display_df) // 2)
 
     return _PROMPT.format(
         ticker=ticker.upper(),
         price=price,
         expiry=expiry,
         dte=max(dte, 0),
-        opt_type_label=opt_type_label,
         pcr_oi=pcr_oi,
         call_oi=metrics.get("total_call_oi", 0),
         put_oi=metrics.get("total_put_oi", 0),
@@ -287,7 +296,8 @@ def _build_prompt(
         net_gex=net_gex_str,
         top_call_oi=top_call_oi,
         top_put_oi=top_put_oi,
-        chain_table=chain_table,
+        calls_chain_table=calls_chain_table,
+        puts_chain_table=puts_chain_table,
         n_contracts=n_contracts,
     )
 
@@ -344,7 +354,8 @@ def run_options_analysis(
     opt_type: str,
     calls_df: pd.DataFrame,
     puts_df: pd.DataFrame,
-    display_df: pd.DataFrame,
+    calls_display_df: pd.DataFrame,
+    puts_display_df: pd.DataFrame,
 ) -> dict | None:
     """
     Compute chain metrics, build a prompt, call Gemini 2.5 Pro, and return
@@ -353,15 +364,16 @@ def run_options_analysis(
     The returned dict has all fields from _REQUIRED_FIELDS plus a 'metrics' key
     with the raw computed numbers for display in the UI.
     """
+    combined_display = pd.concat([calls_display_df, puts_display_df], ignore_index=True)
     metrics = {
         **_put_call_ratios(calls_df, puts_df),
         "max_pain": _max_pain(calls_df, puts_df),
         "iv_skew":  _iv_skew(calls_df, puts_df, price),
-        "net_gex":  _net_gamma_exposure(display_df, price),
+        "net_gex":  _net_gamma_exposure(combined_display, price),
         **_high_oi_strikes(calls_df, puts_df),
     }
 
-    prompt = _build_prompt(ticker, price, expiry, opt_type, calls_df, puts_df, display_df, metrics)
+    prompt = _build_prompt(ticker, price, expiry, calls_df, puts_df, calls_display_df, puts_display_df, metrics)
     raw, stderr = _run_gemini_pro(prompt)
     if not raw:
         return {"_error": stderr or "Gemini returned empty output.", "metrics": metrics}
