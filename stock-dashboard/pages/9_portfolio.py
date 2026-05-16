@@ -1,4 +1,5 @@
 import time
+from itertools import groupby
 
 import numpy as np
 import streamlit as st
@@ -18,6 +19,7 @@ from data.webull_positions import (
 )
 from data.news_fetcher import fetch_news, scrape_article
 from data.news_analyzer import analyze_articles, get_sector_info
+from data import macro_news_fetcher, macro_news_analyzer, macro_news_cache
 from data.portfolio_cache import (
     get_latest_analysis,
     save_analysis,
@@ -206,6 +208,130 @@ def _render_hedge_fund_overlap(positions: list) -> None:
             if rows:
                 overlap_df = pd.DataFrame(rows)
                 st.dataframe(overlap_df, use_container_width=True, hide_index=True)
+
+
+# ---------------------------------------------------------------------------
+# Market Pulse constants + helpers
+# ---------------------------------------------------------------------------
+
+_MACRO_SENTIMENT_ICON = {"positive": "🟢", "negative": "🔴", "neutral": "🟡"}
+
+_CATEGORY_DISPLAY = {
+    "monetary_policy": "Monetary Policy",
+    "geopolitical": "Geopolitical",
+    "macro_economy": "Macro Economy",
+    "energy_commodities": "Energy & Commodities",
+    "sector_financials": "Sector: Financials",
+    "sector_technology": "Sector: Technology",
+    "sector_energy": "Sector: Energy",
+}
+
+_MACRO_CAT_DISPLAY = {
+    "bullish_for_equities": "Bullish for Equities",
+    "bearish_for_equities": "Bearish for Equities",
+    "mixed": "Mixed Impact",
+    "sector_specific": "Sector Specific",
+    "neutral": "Neutral",
+}
+
+
+def _impact_icon(level: int) -> str:
+    if 1 <= level <= 3:
+        return "📰"
+    if 4 <= level <= 6:
+        return "⚡"
+    return "🚨"
+
+
+def _format_pub_date(utc_val) -> str:
+    try:
+        if isinstance(utc_val, (int, float)):
+            dt = datetime.fromtimestamp(utc_val, tz=datetime.now().astimezone().tzinfo)
+            return dt.strftime("%b %d, %Y")
+        return str(utc_val)[:10] if utc_val else "—"
+    except Exception:
+        return "—"
+
+
+def _render_macro_card_portfolio(analysis: dict, idx: int) -> None:
+    title = analysis.get("title", "No title")
+    url = analysis.get("article_url", "")
+    source = analysis.get("source", "")
+    published = _format_pub_date(analysis.get("published_utc"))
+    sentiment_score = analysis.get("sentiment_score", 0.0)
+    sentiment_label = analysis.get("sentiment_label", "neutral")
+    summary = analysis.get("summary", "")
+    impact_level = analysis.get("impact_level", 0)
+    key_themes = analysis.get("key_themes", [])
+    affected_sectors = analysis.get("affected_sectors", [])
+    macro_category = analysis.get("macro_category", "neutral")
+
+    with st.expander(f"{_impact_icon(impact_level)} {title}", expanded=False):
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            meta = f"{source} · {published}"
+            if affected_sectors:
+                meta += " · " + " ".join(f"`{s}`" for s in affected_sectors)
+            st.caption(meta)
+            if summary:
+                st.markdown(summary)
+            if url:
+                st.markdown(f"[Open article ↗]({url})")
+            if key_themes:
+                st.markdown(" ".join(f"`{t}`" for t in key_themes))
+        with col2:
+            icon = _MACRO_SENTIMENT_ICON.get(sentiment_label, "")
+            st.markdown(f"**{icon} {sentiment_label.capitalize()}** ({sentiment_score:+.1f})")
+            st.markdown(f"Impact **{impact_level}/10**")
+            st.markdown(_MACRO_CAT_DISPLAY.get(macro_category, macro_category))
+
+
+def _render_market_pulse_section() -> None:
+    """Render the Market Pulse macro news section on the portfolio page."""
+    st.markdown("---")
+    st.subheader("🌍 Market Pulse")
+    st.caption("Macro, geopolitical, and sector-wide news that moves markets.")
+
+    mp_col1, mp_col2, mp_col3 = st.columns([2, 2, 1])
+    with mp_col1:
+        cat_options = ["All"] + list(_CATEGORY_DISPLAY.values())
+        selected_cat_label = st.selectbox("Category", cat_options, key="mp_portfolio_cat")
+        cat_reverse = {v: k for k, v in _CATEGORY_DISPLAY.items()}
+        selected_cat = cat_reverse.get(selected_cat_label)
+    with mp_col2:
+        min_impact = st.slider("Min Impact Level", 1, 10, 4, key="mp_portfolio_impact")
+    with mp_col3:
+        st.markdown("")
+        st.markdown("")
+        refresh_clicked = st.button("🔄 Refresh", key="mp_portfolio_refresh", use_container_width=True)
+
+    is_fresh = macro_news_cache.is_category_fresh(selected_cat, max_age_minutes=120)
+    if not is_fresh or refresh_clicked:
+        with st.spinner("Fetching macro news…"):
+            raw = macro_news_fetcher.fetch_macro_articles(selected_cat)
+        seen = macro_news_cache.get_article_urls_seen(selected_cat or "all")
+        new_articles = [a for a in raw if a["article_url"] not in seen]
+        if new_articles:
+            with st.spinner(f"Analyzing {len(new_articles)} new articles with Gemini…"):
+                for feed_cat, batch_iter in groupby(new_articles, key=lambda a: a["feed_category"]):
+                    batch = list(batch_iter)[:5]
+                    result = macro_news_analyzer.analyze_macro_articles(batch, feed_cat)
+                    for article in batch:
+                        macro_news_cache.save_macro_analysis(article, result)
+
+    analyses = macro_news_cache.get_recent_analyses(
+        category=selected_cat,
+        hours=48,
+        limit=20,
+    )
+    analyses = [a for a in analyses if a.get("impact_level", 0) >= min_impact]
+
+    if not analyses:
+        st.info("No macro news in cache yet — click 🔄 Refresh to fetch.")
+        return
+
+    for i, analysis in enumerate(analyses):
+        _render_macro_card_portfolio(analysis, i)
 
 
 def _sentiment_color(label: str) -> str:
@@ -614,6 +740,8 @@ if st.session_state.news_results:
     if st.button("Clear All Results"):
         st.session_state.news_results = {}
         st.rerun()
+
+_render_market_pulse_section()
 
 # ---------------------------------------------------------------------------
 # Options Analysis

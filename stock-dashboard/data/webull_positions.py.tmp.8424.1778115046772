@@ -1,0 +1,252 @@
+"""
+webull_positions.py
+-------------------
+Fetches live account positions and balance from the Webull Official OpenAPI.
+
+Authentication is handled automatically by the SDK using HMAC-SHA1 request
+signing with APP_KEY and APP_SECRET. No token file management is needed.
+
+SDK package: webull-openapi-python-sdk v2.x (namespace: webull.core, webull.trade)
+Base URL:    api.webull.com  (resolved automatically from REGION_ID="us")
+"""
+
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+APP_KEY = os.getenv("WEBULL_APP_KEY", "")
+APP_SECRET = os.getenv("WEBULL_APP_SECRET", "")
+ACCOUNT_ID = os.getenv("WEBULL_ACCOUNT_ID", "")
+REGION_ID = os.getenv("WEBULL_REGION_ID", "us")
+
+# These constants are kept so pages/7_positions.py can import them without change.
+# The SDK does not use file-based tokens; these values are retained for UI display only.
+TOKEN_FILE = os.path.join("conf", "webull_token_info.json")
+TOKEN_MAX_DAYS = 15
+TOKEN_WARN_DAYS = 13
+
+
+class WebullAuthError(Exception):
+    """Raised when the API returns HTTP 401 or 403."""
+
+
+# ── Credentials check ─────────────────────────────────────────────────────────
+
+def is_configured() -> bool:
+    """Return True if both APP_KEY and APP_SECRET are set in the environment."""
+    return bool(APP_KEY and APP_SECRET)
+
+
+# ── Client factory ─────────────────────────────────────────────────────────────
+
+def _make_client():
+    """
+    Build and return a TradeClient using the official SDK.
+
+    Import paths (webull-openapi-python-sdk v2.x namespace):
+      - ApiClient is in webull.core.client
+      - TradeClient is in webull.trade.trade_client
+
+    ApiClient(app_key, app_secret, region_id) automatically:
+      - Resolves the endpoint from data/endpoints.json ("us" -> api.webull.com)
+      - Signs every outbound request with HMAC-SHA1 using APP_KEY/APP_SECRET
+      - Sets required headers: x-app-key, x-signature, x-signature-algorithm,
+        x-signature-version, x-signature-nonce, x-timestamp
+    """
+    from webull.core.client import ApiClient
+    from webull.trade.trade_client import TradeClient
+
+    api_client = ApiClient(APP_KEY, APP_SECRET, REGION_ID)
+    return TradeClient(api_client)
+
+
+# ── Token status stubs ─────────────────────────────────────────────────────────
+#
+# The official SDK does NOT use file-based tokens. The SDK authenticates each
+# request independently via HMAC signing — there is no "pending approval" flow
+# and no 15-day token expiry.
+#
+# These functions are kept with the same signatures as before so that
+# pages/7_positions.py requires zero changes.
+
+def get_token_age_days() -> int | None:
+    """Always returns None — the SDK has no file-based token."""
+    return None
+
+
+def get_token_status() -> str:
+    """
+    Returns 'missing' if credentials are absent, 'active' otherwise.
+    The 'pending' and 'expired' states no longer apply with the SDK.
+    """
+    if not is_configured():
+        return "missing"
+    return "active"
+
+
+def delete_token() -> None:
+    """No-op — the SDK has no token file to delete."""
+    pass
+
+
+# ── Account list ───────────────────────────────────────────────────────────────
+
+def get_account_list() -> list[dict]:
+    """
+    Fetches the list of accounts associated with the API key.
+
+    Endpoint:  GET /openapi/account/list
+    Base URL:  https://api.webull.com
+    Full URL:  https://api.webull.com/openapi/account/list
+
+    Note from SDK docs: "Currently available only to individual brokerage customers
+    in Webull Japan and institutional brokerage clients in Webull Hong Kong."
+    US retail accounts may receive an empty list or a 403 from this endpoint.
+    The UI in pages/7_positions.py only calls this when ACCOUNT_ID is not set,
+    so this is a fallback discovery path.
+
+    Returns a list of dicts with keys: account_id, account_type, currency.
+    Returns [] on any error.
+    """
+    if not is_configured():
+        return []
+    try:
+        client = _make_client()
+        res = client.account_v2.get_account_list()
+        if res.status_code != 200:
+            return []
+        data = res.json()
+        # The response may be a list directly, or a dict with a "data" or "items" key.
+        if isinstance(data, list):
+            accounts_raw = data
+        elif isinstance(data, dict):
+            accounts_raw = data.get("data") or data.get("items") or data.get("accounts") or []
+        else:
+            accounts_raw = []
+        return [
+            {
+                "account_id":   str(a.get("account_id") or a.get("id") or ""),
+                "account_type": str(a.get("account_type") or a.get("type") or ""),
+                "currency":     str(a.get("currency") or ""),
+            }
+            for a in accounts_raw
+            if isinstance(a, dict)
+        ]
+    except Exception:
+        return []
+
+
+# ── Positions ──────────────────────────────────────────────────────────────────
+
+def get_positions(account_id: str) -> list[dict]:
+    """
+    Fetches all open positions for account_id using cursor pagination.
+
+    Raises WebullAuthError on HTTP 401 or 403.
+    Returns [] on any other error.
+    """
+    if not is_configured() or not account_id:
+        return []
+
+    positions = []
+    last_instrument_id = None
+
+    try:
+        client = _make_client()
+
+        while True:
+            res = client.account_v2.get_account_position(
+                account_id,
+                page_size=100,
+                last_instrument_id=last_instrument_id,
+            )
+
+            if res.status_code in (401, 403):
+                raise WebullAuthError(
+                    f"Webull API returned {res.status_code}: {res.text}"
+                )
+            if res.status_code != 200:
+                break
+
+            page_data = res.json()
+
+            if isinstance(page_data, list):
+                holdings = page_data
+                has_next = False
+            else:
+                holdings = page_data.get("holdings") or []
+                has_next = bool(page_data.get("has_next", False))
+
+            for h in holdings:
+                pnl_rate_raw = h.get("unrealized_profit_loss_rate", 0) or 0
+                try:
+                    pnl_pct = float(pnl_rate_raw) * 100
+                except (ValueError, TypeError):
+                    pnl_pct = 0.0
+
+                positions.append({
+                    "ticker":             str(h.get("instrument") or ""),
+                    "quantity":           float(h.get("quantity") or 0),
+                    "cost_basis":         float(h.get("total_cost") or 0),
+                    "market_value":       float(h.get("market_value") or 0),
+                    "unrealized_pnl":     float(h.get("unrealized_profit_loss") or 0),
+                    "unrealized_pnl_pct": pnl_pct,
+                })
+
+            if not has_next or not holdings:
+                break
+
+            last_instrument_id = str(holdings[-1].get("instrument_id", ""))
+            if not last_instrument_id:
+                break
+
+    except WebullAuthError:
+        raise
+    except Exception:
+        return []
+
+    return positions
+
+
+# ── Account summary ────────────────────────────────────────────────────────────
+
+def get_account_summary(account_id: str) -> dict:
+    """
+    Fetches the account balance/summary for account_id.
+
+    Raises WebullAuthError on HTTP 401 or 403.
+    Returns {} on any other error.
+    """
+    if not is_configured() or not account_id:
+        return {}
+    try:
+        client = _make_client()
+        res = client.account_v2.get_account_balance(
+            account_id,
+            total_asset_currency="USD",
+        )
+
+        if res.status_code in (401, 403):
+            raise WebullAuthError(
+                f"Webull API returned {res.status_code}: {res.text}"
+            )
+        if res.status_code != 200:
+            return {}
+
+        b = res.json()
+
+        if isinstance(b, dict) and "data" in b and isinstance(b["data"], dict):
+            b = b["data"]
+
+        return {
+            "Total Value":  float(b.get("total_asset") or 0),
+            "Market Value": float(b.get("total_market_value") or 0),
+            "Cash Balance": float(b.get("total_cash") or 0),
+            "Total P&L":    float(b.get("total_profit_loss") or 0),
+        }
+
+    except WebullAuthError:
+        raise
+    except Exception:
+        return {}

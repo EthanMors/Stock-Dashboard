@@ -1,0 +1,396 @@
+25504 2026-05-13 15:25:56,573 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+25504 2026-05-13 15:25:56,578 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+25504 2026-05-13 15:25:56,580 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+25504 2026-05-13 15:25:56,580 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+25504 2026-05-13 15:25:56,581 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+25504 2026-05-13 15:25:56,586 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1779833172582 status:NORMAL
+25504 2026-05-13 15:25:57,286 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:25:57,288 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:25:57,288 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:25:57,289 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+25504 2026-05-13 15:25:57,290 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:25:58,414 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+25504 2026-05-13 15:25:58,414 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+25504 2026-05-13 15:25:58,416 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+25504 2026-05-13 15:25:58,416 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+25504 2026-05-13 15:25:58,417 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+25504 2026-05-13 15:25:58,417 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+25504 2026-05-13 15:25:58,417 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+25504 2026-05-13 15:25:58,417 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+25504 2026-05-13 15:25:58,418 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+25504 2026-05-13 15:25:58,418 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+25504 2026-05-13 15:25:58,424 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:25:58,424 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:25:58,957 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:25:58,957 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:25:58,958 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:25:58,958 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:25:58,959 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:25:58,959 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:25:58,960 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+25504 2026-05-13 15:25:58,960 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+25504 2026-05-13 15:25:58,960 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:25:58,960 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:00,116 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+25504 2026-05-13 15:26:00,116 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+25504 2026-05-13 15:26:00,116 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+25504 2026-05-13 15:26:00,118 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+25504 2026-05-13 15:26:00,118 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+25504 2026-05-13 15:26:00,118 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+25504 2026-05-13 15:26:00,118 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+25504 2026-05-13 15:26:00,118 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+25504 2026-05-13 15:26:00,118 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+25504 2026-05-13 15:26:00,119 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+25504 2026-05-13 15:26:00,119 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+25504 2026-05-13 15:26:00,119 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+25504 2026-05-13 15:26:00,119 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+25504 2026-05-13 15:26:00,119 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+25504 2026-05-13 15:26:00,119 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+25504 2026-05-13 15:26:00,121 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:00,121 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:00,121 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:00,682 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:00,682 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:00,682 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:00,683 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:00,683 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:00,683 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:00,683 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:00,683 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:00,683 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:00,685 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+25504 2026-05-13 15:26:00,685 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+25504 2026-05-13 15:26:00,685 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+25504 2026-05-13 15:26:00,685 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:00,685 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:00,685 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:02,226 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+25504 2026-05-13 15:26:02,226 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+25504 2026-05-13 15:26:02,226 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+25504 2026-05-13 15:26:02,226 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+25504 2026-05-13 15:26:02,228 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+25504 2026-05-13 15:26:02,228 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+25504 2026-05-13 15:26:02,228 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+25504 2026-05-13 15:26:02,228 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+25504 2026-05-13 15:26:02,230 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+25504 2026-05-13 15:26:02,230 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+25504 2026-05-13 15:26:02,230 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+25504 2026-05-13 15:26:02,230 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+25504 2026-05-13 15:26:02,231 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+25504 2026-05-13 15:26:02,231 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+25504 2026-05-13 15:26:02,231 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+25504 2026-05-13 15:26:02,231 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+25504 2026-05-13 15:26:02,231 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+25504 2026-05-13 15:26:02,231 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+25504 2026-05-13 15:26:02,231 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+25504 2026-05-13 15:26:02,231 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+25504 2026-05-13 15:26:02,233 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:02,233 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:02,233 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:02,233 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:02,812 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:02,812 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:02,812 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:02,812 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:02,814 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:02,814 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:02,814 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:02,814 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:02,815 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:02,815 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:02,815 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:02,815 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:02,817 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+25504 2026-05-13 15:26:02,817 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+25504 2026-05-13 15:26:02,817 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+25504 2026-05-13 15:26:02,817 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+25504 2026-05-13 15:26:02,818 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:02,818 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:02,818 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+25504 2026-05-13 15:26:02,818 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:33,775 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+27052 2026-05-13 15:32:33,775 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+27052 2026-05-13 15:32:33,775 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+27052 2026-05-13 15:32:33,775 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+27052 2026-05-13 15:32:33,775 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+27052 2026-05-13 15:32:33,777 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+27052 2026-05-13 15:32:33,777 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+27052 2026-05-13 15:32:33,777 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+27052 2026-05-13 15:32:33,777 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+27052 2026-05-13 15:32:33,777 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+27052 2026-05-13 15:32:33,778 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:33,778 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:33,778 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:33,778 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:33,778 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:33,779 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:33,779 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:33,779 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:33,779 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:33,779 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:33,780 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+27052 2026-05-13 15:32:33,780 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+27052 2026-05-13 15:32:33,780 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+27052 2026-05-13 15:32:33,780 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+27052 2026-05-13 15:32:33,780 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+27052 2026-05-13 15:32:33,782 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:33,782 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:33,782 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:33,782 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:33,782 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:34,296 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:34,296 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:34,296 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:34,296 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:34,296 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:34,298 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:34,298 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:34,298 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:34,298 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:34,298 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:34,299 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:34,299 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:34,299 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:34,299 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:34,299 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:34,300 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+27052 2026-05-13 15:32:34,300 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+27052 2026-05-13 15:32:34,300 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+27052 2026-05-13 15:32:34,300 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+27052 2026-05-13 15:32:34,300 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+27052 2026-05-13 15:32:34,301 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:34,301 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:34,301 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:34,301 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:34,301 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:35,355 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+27052 2026-05-13 15:32:35,355 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+27052 2026-05-13 15:32:35,355 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+27052 2026-05-13 15:32:35,355 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+27052 2026-05-13 15:32:35,355 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+27052 2026-05-13 15:32:35,355 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+27052 2026-05-13 15:32:35,357 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+27052 2026-05-13 15:32:35,357 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+27052 2026-05-13 15:32:35,357 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+27052 2026-05-13 15:32:35,357 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+27052 2026-05-13 15:32:35,357 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+27052 2026-05-13 15:32:35,357 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+27052 2026-05-13 15:32:35,358 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:35,358 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:35,358 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:35,358 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:35,358 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:35,358 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:35,359 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:35,359 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:35,359 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:35,359 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:35,359 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:35,359 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:35,360 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+27052 2026-05-13 15:32:35,360 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+27052 2026-05-13 15:32:35,360 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+27052 2026-05-13 15:32:35,360 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+27052 2026-05-13 15:32:35,360 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+27052 2026-05-13 15:32:35,360 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+27052 2026-05-13 15:32:35,362 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:35,362 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:35,362 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:35,362 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:35,362 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:35,362 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:35,872 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:35,872 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:35,872 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:35,872 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:35,872 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:35,872 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:35,874 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:35,874 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:35,874 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:35,874 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:35,874 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:35,874 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:35,875 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:35,875 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:35,875 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:35,875 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:35,875 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:35,875 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:35,877 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+27052 2026-05-13 15:32:35,877 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+27052 2026-05-13 15:32:35,877 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+27052 2026-05-13 15:32:35,877 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+27052 2026-05-13 15:32:35,877 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+27052 2026-05-13 15:32:35,877 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+27052 2026-05-13 15:32:35,878 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:35,878 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:35,878 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:35,878 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:35,878 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:35,878 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:36,959 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+27052 2026-05-13 15:32:36,959 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+27052 2026-05-13 15:32:36,959 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+27052 2026-05-13 15:32:36,959 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+27052 2026-05-13 15:32:36,959 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+27052 2026-05-13 15:32:36,959 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+27052 2026-05-13 15:32:36,959 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+27052 2026-05-13 15:32:36,961 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+27052 2026-05-13 15:32:36,961 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+27052 2026-05-13 15:32:36,961 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+27052 2026-05-13 15:32:36,961 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+27052 2026-05-13 15:32:36,961 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+27052 2026-05-13 15:32:36,961 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+27052 2026-05-13 15:32:36,961 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+27052 2026-05-13 15:32:36,963 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:36,963 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:36,963 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:36,963 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:36,963 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:36,963 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:36,963 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:36,964 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:36,964 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:36,964 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:36,964 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:36,964 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:36,964 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:36,964 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:36,965 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+27052 2026-05-13 15:32:36,965 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+27052 2026-05-13 15:32:36,965 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+27052 2026-05-13 15:32:36,965 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+27052 2026-05-13 15:32:36,965 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+27052 2026-05-13 15:32:36,965 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+27052 2026-05-13 15:32:36,965 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+27052 2026-05-13 15:32:36,967 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:36,967 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:36,967 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:36,967 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:36,967 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:36,967 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:36,967 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:37,464 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:37,464 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:37,464 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:37,464 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:37,464 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:37,464 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:37,464 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:37,466 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:37,466 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:37,466 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:37,466 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:37,466 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:37,466 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:37,466 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:37,467 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:37,467 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:37,467 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:37,467 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:37,467 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:37,467 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:37,467 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:37,468 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+27052 2026-05-13 15:32:37,468 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+27052 2026-05-13 15:32:37,468 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+27052 2026-05-13 15:32:37,468 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+27052 2026-05-13 15:32:37,468 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+27052 2026-05-13 15:32:37,468 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+27052 2026-05-13 15:32:37,468 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+27052 2026-05-13 15:32:37,469 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:37,469 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:37,469 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:37,469 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:37,469 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:37,469 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:37,469 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:38,592 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+27052 2026-05-13 15:32:38,592 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+27052 2026-05-13 15:32:38,592 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+27052 2026-05-13 15:32:38,592 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+27052 2026-05-13 15:32:38,592 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+27052 2026-05-13 15:32:38,592 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+27052 2026-05-13 15:32:38,592 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+27052 2026-05-13 15:32:38,592 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+27052 2026-05-13 15:32:38,594 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+27052 2026-05-13 15:32:38,594 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+27052 2026-05-13 15:32:38,594 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+27052 2026-05-13 15:32:38,594 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+27052 2026-05-13 15:32:38,594 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+27052 2026-05-13 15:32:38,594 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+27052 2026-05-13 15:32:38,594 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+27052 2026-05-13 15:32:38,594 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+27052 2026-05-13 15:32:38,596 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:38,596 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:38,596 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:38,596 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:38,596 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:38,596 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:38,596 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:38,596 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:38,598 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:38,598 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:38,598 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:38,598 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:38,598 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:38,598 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:38,598 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:38,598 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\ethan\Downloads\Stock Dashboard\stock-dashboard\conf\token.txt.
+27052 2026-05-13 15:32:38,599 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+27052 2026-05-13 15:32:38,599 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+27052 2026-05-13 15:32:38,599 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+27052 2026-05-13 15:32:38,599 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+27052 2026-05-13 15:32:38,599 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+27052 2026-05-13 15:32:38,599 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+27052 2026-05-13 15:32:38,599 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+27052 2026-05-13 15:32:38,599 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+27052 2026-05-13 15:32:38,601 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:38,601 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:38,601 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:38,601 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:38,601 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:38,601 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:38,601 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:38,601 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:39,092 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:39,092 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:39,092 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:39,092 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:39,092 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:39,092 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:39,092 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:39,092 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:39,094 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:39,094 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:39,094 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:39,094 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:39,094 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:39,094 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:39,094 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:39,094 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:39,095 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:39,095 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:39,095 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:39,095 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:39,095 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:39,095 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:39,095 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:39,095 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:39,097 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+27052 2026-05-13 15:32:39,097 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+27052 2026-05-13 15:32:39,097 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+27052 2026-05-13 15:32:39,097 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+27052 2026-05-13 15:32:39,097 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+27052 2026-05-13 15:32:39,097 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+27052 2026-05-13 15:32:39,097 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+27052 2026-05-13 15:32:39,097 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+27052 2026-05-13 15:32:39,098 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:39,098 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:39,098 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:39,098 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:39,098 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:39,098 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:39,098 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL
+27052 2026-05-13 15:32:39,098 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a7a562******59acbc expires:1780007157335 status:NORMAL

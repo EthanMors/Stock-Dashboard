@@ -86,3 +86,10 @@ For all non-trivial coding tasks (new features, multi-file changes, bug fixes to
 2. **Then spawn the `spec-implementer` agent** (Haiku model), passing it the path to the plan file. It will execute the plan exactly as written.
 
 This two-agent workflow is the default for all coding work in this project. Skip it only for single-line or trivially obvious fixes (e.g., fixing a typo, changing a constant).
+
+### Agent Reference Files
+
+Both agents should read these files before working on this codebase:
+
+- **`stock-dashboard/planner-skills.md`** — For the `codebase-planner` agent: architecture decisions, design patterns, decision frameworks, and what NOT to propose. Read this before writing any plan.
+- **`stock-dashboard/implementor-skills.md`** — For the `spec-implementer` agent: exact code patterns, function signatures, DB schemas, Gemini CLI invocation, SQLite patterns, and common gotchas. Read this before writing any code.

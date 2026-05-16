@@ -1,0 +1,425 @@
+import datetime
+import random
+from decimal import Decimal
+from typing import Optional, TypedDict
+
+import streamlit as st
+from edgar import get_filings, set_identity
+
+from data.cache import (
+    load_hedge_fund_cache,
+    save_hedge_fund_cache,
+    get_all_hedge_fund_filings,
+    upsert_hedge_fund_filing,
+    get_stored_accession_numbers,
+    get_last_check_time,
+    save_last_check_time,
+)
+
+set_identity("ethanjosemorris@gmail.com")
+
+_MAX_FILINGS_TO_SCAN = 300
+_CONCENTRATED_THRESHOLD = 15
+_CACHE_KEY = "concentrated_funds_v1"
+
+
+class HoldingRow(TypedDict):
+    issuer: str
+    ticker: str
+    value: float
+    shares: float
+    pct_of_portfolio: float
+    put_call: str
+
+
+class FundProfile(TypedDict):
+    name: str
+    cik: str
+    report_period: str
+    filing_date: str
+    total_holdings: int
+    total_value: float
+    holdings: list
+
+
+class CategorizedFunds(TypedDict):
+    top5: list
+    bottom5: list
+    daily_middle: list
+    middle_count: int
+    as_of_date: str
+
+
+def _normalize_value(raw) -> float:
+    """Convert edgartools value to float dollars, handling Decimal/int/None."""
+    if raw is None:
+        return 0.0
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _parse_holdings(report) -> list:
+    """Convert ThirteenF holdings DataFrame to list of HoldingRow dicts."""
+    try:
+        df = report.holdings
+        if df is None or df.empty:
+            return []
+    except Exception:
+        return []
+
+    total_val = _normalize_value(report.total_value)
+    rows = []
+
+    cols_lower = {c.lower(): c for c in df.columns}
+    value_col = cols_lower.get("value") or cols_lower.get("val")
+    shares_col = (
+        cols_lower.get("sharesprnamount")
+        or cols_lower.get("shares")
+        or cols_lower.get("amount")
+    )
+    issuer_col = (
+        cols_lower.get("issuer")
+        or cols_lower.get("nameofissuer")
+        or cols_lower.get("name")
+    )
+    ticker_col = cols_lower.get("ticker") or cols_lower.get("symbol")
+    putcall_col = (
+        cols_lower.get("putcall")
+        or cols_lower.get("put_call")
+        or cols_lower.get("optiontype")
+    )
+
+    for _, row in df.iterrows():
+        val = _normalize_value(row.get(value_col) if value_col else None)
+        shares = _normalize_value(row.get(shares_col) if shares_col else None)
+        pct = (val / total_val * 100) if total_val > 0 else 0.0
+        put_call = str(row.get(putcall_col, "") or "") if putcall_col else ""
+
+        rows.append(
+            HoldingRow(
+                issuer=str(row.get(issuer_col, "") or "") if issuer_col else "",
+                ticker=str(row.get(ticker_col, "") or "") if ticker_col else "",
+                value=val,
+                shares=shares,
+                pct_of_portfolio=round(pct, 2),
+                put_call=put_call,
+            )
+        )
+
+    rows.sort(key=lambda r: r["value"], reverse=True)
+    return rows
+
+
+def _pick_daily_middle(funds: list) -> list:
+    """Select one fund from the middle tier deterministically based on today's date."""
+    if not funds:
+        return []
+    seed = int(datetime.date.today().strftime("%Y%m%d"))
+    rng = random.Random(seed)
+    return [rng.choice(funds)]
+
+
+def _apply_unit_correction(funds: list) -> list:
+    """
+    If total_value for all funds looks implausibly small (< $1M), edgartools is
+    returning raw thousands from the SEC filing — multiply everything by 1000.
+    """
+    if not funds:
+        return funds
+    max_val = max(f["total_value"] for f in funds)
+    if max_val < 1_000_000:
+        for f in funds:
+            f["total_value"] *= 1000
+            for h in f["holdings"]:
+                h["value"] *= 1000
+    return funds
+
+
+def _is_filing_window() -> bool:
+    """Return True if today falls within 0–45 days after a quarter-end date.
+
+    Quarter ends used: March 31, June 30, September 30, December 31.
+    The 45-day window starts ON the quarter-end date (day 0) and includes the
+    45th day after it. Both the current year and the prior year are checked so
+    that the December 31 window carries into the following January and February.
+    """
+    today = datetime.date.today()
+    year = today.year
+    quarter_ends = [
+        datetime.date(year - 1, 12, 31),
+        datetime.date(year, 3, 31),
+        datetime.date(year, 6, 30),
+        datetime.date(year, 9, 30),
+        datetime.date(year, 12, 31),
+    ]
+    for qe in quarter_ends:
+        diff = (today - qe).days
+        if 0 <= diff <= 45:
+            return True
+    return False
+
+
+def _check_interval_hours() -> int:
+    """Return how many hours to wait between EDGAR polls based on filing window position.
+
+    - Not in window           → 999999 (effectively never)
+    - Days 1–30 of window     → 72 hours (check every 3 days; filings trickle in)
+    - Days 31–45 of window    → 24 hours (final stretch; more filings arrive daily)
+    """
+    today = datetime.date.today()
+    year = today.year
+    quarter_ends = [
+        datetime.date(year - 1, 12, 31),
+        datetime.date(year, 3, 31),
+        datetime.date(year, 6, 30),
+        datetime.date(year, 9, 30),
+        datetime.date(year, 12, 31),
+    ]
+    min_diff = None
+    for qe in quarter_ends:
+        diff = (today - qe).days
+        if 0 <= diff <= 45:
+            if min_diff is None or diff < min_diff:
+                min_diff = diff
+    if min_diff is None:
+        return 999999
+    if min_diff <= 30:
+        return 72
+    return 24
+
+
+def _fetch_fund_from_filing(filing, cik: str) -> Optional[FundProfile]:
+    """Download and parse one 13F-HR filing into a FundProfile dict.
+
+    Calls filing.obj() to download the full report — this is the expensive network
+    call. Returns None on any failure or if the fund has >= _CONCENTRATED_THRESHOLD
+    positions (keeping only concentrated funds consistent with existing behavior).
+
+    Args:
+        filing: An edgartools filing object (already has .cik, .company, .filing_date).
+        cik: The CIK string extracted from the filing before calling this function.
+
+    Returns:
+        A FundProfile TypedDict dict, or None if the fund is not concentrated or
+        parsing fails.
+    """
+    try:
+        report = filing.obj()
+        if report is None:
+            return None
+
+        has_table = getattr(report, "has_infotable", True)
+        if not has_table:
+            return None
+
+        n_positions = getattr(report, "total_holdings", None)
+        if n_positions is None or n_positions >= _CONCENTRATED_THRESHOLD:
+            return None
+
+        total_val = _normalize_value(getattr(report, "total_value", None))
+        holdings = _parse_holdings(report)
+        name = (
+            getattr(report, "management_company_name", None)
+            or getattr(filing, "company", None)
+            or cik
+        )
+        report_period = str(getattr(report, "report_period", "") or "")
+        filing_date = str(
+            getattr(report, "filing_date", "")
+            or getattr(filing, "filing_date", "")
+            or ""
+        )
+
+        return FundProfile(
+            name=str(name),
+            cik=cik,
+            report_period=report_period,
+            filing_date=filing_date,
+            total_holdings=int(n_positions),
+            total_value=total_val,
+            holdings=holdings,
+        )
+    except Exception:
+        return None
+
+
+def refresh_hedge_fund_db() -> int:
+    """Smart EDGAR poll: fetch new/updated 13F-HR filings and upsert them into the DB.
+
+    Returns the number of fund rows updated (0 if skipped or nothing new found).
+
+    Algorithm:
+    1. If not in the 45-day filing window, return 0 immediately.
+    2. If the last poll was within _check_interval_hours() hours, return 0 (too soon).
+    3. Fetch the first _MAX_FILINGS_TO_SCAN filings from EDGAR (header-only, no .obj()).
+    4. Compare each filing's accession_number against what is stored in the DB.
+    5. For each CIK with a new or changed accession_number, download the full report
+       via _fetch_fund_from_filing() and upsert it.
+    6. Record the poll timestamp and count via save_last_check_time().
+    7. Return the count of updated funds.
+    """
+    if not _is_filing_window():
+        return 0
+
+    interval_hours = _check_interval_hours()
+    last_check = get_last_check_time()
+    if last_check is not None:
+        import datetime as _dt_mod
+        elapsed = (_dt_mod.datetime.utcnow() - last_check).total_seconds() / 3600
+        if elapsed < interval_hours:
+            return 0
+
+    try:
+        filings_batch = get_filings(form="13F-HR")
+    except Exception:
+        return 0
+
+    stored = get_stored_accession_numbers()
+    seen_ciks: set = set()
+    updated_count = 0
+    scanned = 0
+
+    for filing in filings_batch:
+        if scanned >= _MAX_FILINGS_TO_SCAN:
+            break
+        scanned += 1
+
+        cik = str(getattr(filing, "cik", "") or "")
+        if not cik or cik in seen_ciks:
+            continue
+        seen_ciks.add(cik)
+
+        # Get accession_number without downloading full report
+        accession_number = str(getattr(filing, "accession_number", "") or "")
+        if not accession_number:
+            continue
+
+        stored_accession = stored.get(cik)
+        if stored_accession == accession_number:
+            # Already have this exact filing in DB — skip the expensive .obj() call
+            continue
+
+        # New or updated filing — download and parse
+        fund_profile = _fetch_fund_from_filing(filing, cik)
+        if fund_profile is None:
+            continue
+
+        upsert_hedge_fund_filing(fund_profile, accession_number)
+        updated_count += 1
+
+    save_last_check_time(count=updated_count)
+    return updated_count
+
+
+@st.cache_data(ttl=86400)
+def get_concentrated_funds(
+    max_scan: int = _MAX_FILINGS_TO_SCAN,
+    threshold: int = _CONCENTRATED_THRESHOLD,
+) -> list:
+    """
+    Scan recent 13F-HR filings and return all concentrated funds (< threshold positions).
+    Results are cached in SQLite per calendar day and in Streamlit's in-memory cache.
+    """
+    cached = load_hedge_fund_cache(_CACHE_KEY)
+    if cached is not None:
+        return cached
+
+    try:
+        filings_batch = get_filings(form="13F-HR")
+    except Exception:
+        return []
+
+    seen_ciks: set = set()
+    concentrated = []
+    scanned = 0
+
+    for filing in filings_batch:
+        if scanned >= max_scan:
+            break
+        scanned += 1
+
+        cik = str(getattr(filing, "cik", "") or "")
+        if not cik or cik in seen_ciks:
+            continue
+        seen_ciks.add(cik)
+
+        try:
+            report = filing.obj()
+            if report is None:
+                continue
+
+            has_table = getattr(report, "has_infotable", True)
+            if not has_table:
+                continue
+
+            n_positions = getattr(report, "total_holdings", None)
+            if n_positions is None or n_positions >= threshold:
+                continue
+
+            total_val = _normalize_value(getattr(report, "total_value", None))
+            holdings = _parse_holdings(report)
+            name = (
+                getattr(report, "management_company_name", None)
+                or getattr(filing, "company", None)
+                or cik
+            )
+            report_period = str(getattr(report, "report_period", "") or "")
+            filing_date = str(getattr(report, "filing_date", "") or getattr(filing, "filing_date", "") or "")
+
+            concentrated.append(
+                FundProfile(
+                    name=str(name),
+                    cik=cik,
+                    report_period=report_period,
+                    filing_date=filing_date,
+                    total_holdings=int(n_positions),
+                    total_value=total_val,
+                    holdings=holdings,
+                )
+            )
+        except Exception:
+            continue
+
+    concentrated = _apply_unit_correction(concentrated)
+
+    if concentrated:
+        save_hedge_fund_cache(_CACHE_KEY, concentrated)
+
+    return concentrated
+
+
+@st.cache_data(ttl=86400)
+def get_categorized_funds() -> CategorizedFunds:
+    """Categorize concentrated funds into top5, bottom5, and daily middle pick."""
+    funds = get_concentrated_funds()
+
+    if not funds:
+        return CategorizedFunds(
+            top5=[],
+            bottom5=[],
+            daily_middle=[],
+            middle_count=0,
+            as_of_date=str(datetime.date.today()),
+        )
+
+    sorted_funds = sorted(funds, key=lambda f: f["total_value"], reverse=True)
+    n = len(sorted_funds)
+
+    top5 = sorted_funds[:5]
+
+    if n >= 10:
+        bottom5 = sorted_funds[n - 5:]
+        middle = sorted_funds[5: n - 5]
+    else:
+        bottom5 = []
+        middle = []
+
+    return CategorizedFunds(
+        top5=top5,
+        bottom5=bottom5,
+        daily_middle=_pick_daily_middle(middle),
+        middle_count=len(middle),
+        as_of_date=str(datetime.date.today()),
+    )
