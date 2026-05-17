@@ -57,3 +57,24 @@ CREATE INDEX IF NOT EXISTS idx_poa_ticker
 
 CREATE INDEX IF NOT EXISTS idx_poa_lookup
     ON portfolio_options_analysis (ticker, expiry, opt_type, analyzed_at);
+
+CREATE TABLE IF NOT EXISTS hedge_fund_analysis (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker_key  TEXT NOT NULL,
+    result_json TEXT NOT NULL,
+    analyzed_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_hfa_ticker_key
+    ON hedge_fund_analysis (ticker_key, analyzed_at);
+
+CREATE TABLE IF NOT EXISTS mpt_analysis (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker_key   TEXT NOT NULL,
+    result_json  TEXT NOT NULL,
+    metrics_json TEXT NOT NULL,
+    analyzed_at  TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_mpta_ticker_key
+    ON mpt_analysis (ticker_key, analyzed_at);

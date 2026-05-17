@@ -1,4 +1,5 @@
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from itertools import groupby
 
 import numpy as np
@@ -28,7 +29,13 @@ from data.portfolio_cache import (
     save_options_analysis,
     get_latest_options_analysis,
     is_options_analysis_fresh,
+    save_hedge_fund_analysis,
+    get_latest_hedge_fund_analysis,
+    save_mpt_analysis,
+    get_latest_mpt_analysis,
 )
+from data.hedge_fund_agent import run_hedge_fund_analysis
+from data.mpt_agent import run_mpt_analysis
 from data.hedge_fund_fetcher import get_all_funds_from_db, refresh_hedge_fund_db
 
 st.set_page_config(page_title="Portfolio", layout="wide")
@@ -138,12 +145,144 @@ def _find_overlapping_funds(portfolio_tickers: list) -> list:
     return overlapping
 
 
+def _render_hedge_fund_analysis(result: dict) -> None:
+    """Render the structured Gemini hedge fund intelligence analysis.
+
+    Displays:
+    - Portfolio signal banner (overall_stance + confidence)
+    - cross_ticker_themes as inline tags
+    - Portfolio summary text
+    - Per-ticker expandable cards (conviction_level, ownership_type, inferred_thesis, key_signal)
+    - Flags warning block (if any flags present)
+
+    Args:
+        result: Dict returned by run_hedge_fund_analysis() with keys:
+                per_ticker, portfolio_signal, flags.
+    """
+    if result is None:
+        st.error("Analysis failed — no response from Gemini.")
+        return
+    if "_error" in result:
+        st.error(f"Gemini error: {result['_error']}")
+        return
+
+    ps = result.get("portfolio_signal", {})
+    stance = ps.get("overall_stance", "mixed")
+    conf = ps.get("confidence", "medium")
+    themes = ps.get("cross_ticker_themes", [])
+    summary = ps.get("summary", "")
+
+    _STANCE_COLOR = {
+        "bullish": "#00c853",
+        "bearish": "#ff1744",
+        "mixed": "#ffd600",
+        "defensive": "#ff6d00",
+    }
+    _STANCE_ICON = {
+        "bullish": "▲",
+        "bearish": "▼",
+        "mixed": "●",
+        "defensive": "◆",
+    }
+    color = _STANCE_COLOR.get(stance, "#ffd600")
+    icon = _STANCE_ICON.get(stance, "●")
+
+    # Portfolio signal banner
+    st.markdown(
+        f"""
+        <div style="background:linear-gradient(135deg,{color}22,{color}11);
+                    border-left:4px solid {color};border-radius:6px;
+                    padding:14px 18px;margin-bottom:12px">
+          <span style="color:{color};font-size:1.5rem;font-weight:700">
+            {icon} SMART MONEY: {stance.upper()}
+          </span>
+          &nbsp;&nbsp;
+          <span style="color:#aaa;font-size:0.9rem">Confidence: {conf.capitalize()}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Theme tags
+    if themes:
+        tags_html = "".join(
+            f'<span style="background:#1e1e2e;border:1px solid #555;border-radius:12px;'
+            f'padding:2px 10px;font-size:0.78rem;margin-right:6px;display:inline-block">{t}</span>'
+            for t in themes
+        )
+        st.markdown(tags_html, unsafe_allow_html=True)
+        st.markdown("")
+
+    # Portfolio summary
+    if summary:
+        st.markdown(
+            f"""
+            <div style="background:#1a1a2e;border-left:4px solid {color};
+                        border-radius:6px;padding:16px 20px;margin-bottom:16px">
+              <p style="color:#ddd;font-size:0.95rem;margin:0;line-height:1.7">{summary}</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    # Per-ticker expandable cards
+    per_ticker = result.get("per_ticker", {})
+    if per_ticker:
+        st.markdown("**Per-Ticker Smart Money Signals**")
+        _CONV_COLOR = {"high": "#00c853", "medium": "#ffd600", "low": "#aaa"}
+        _OT_LABEL = {
+            "bullish_equity": "Bullish Equity",
+            "hedged": "Hedged",
+            "speculative_put": "Speculative Put",
+            "mixed": "Mixed",
+        }
+        for ticker_sym, entry in per_ticker.items():
+            conv = entry.get("conviction_level", "medium")
+            ot = entry.get("ownership_type", "bullish_equity")
+            thesis = entry.get("inferred_thesis", "")
+            key_signal = entry.get("key_signal", "")
+            fund_count = entry.get("fund_count", 1)
+            conv_color = _CONV_COLOR.get(conv, "#aaa")
+            ot_label = _OT_LABEL.get(ot, ot.replace("_", " ").title())
+
+            with st.expander(
+                f"**{ticker_sym}** — {ot_label} · {conv.capitalize()} Conviction · {fund_count} fund{'s' if fund_count != 1 else ''}",
+                expanded=False,
+            ):
+                c1, c2 = st.columns([1, 3])
+                with c1:
+                    st.markdown(
+                        f'<span style="color:{conv_color};font-weight:700;font-size:1.1rem">'
+                        f'{conv.upper()} CONVICTION</span>',
+                        unsafe_allow_html=True,
+                    )
+                    st.caption(ot_label)
+                with c2:
+                    if key_signal:
+                        st.markdown(
+                            f'<div style="background:#1e1e2e;border-radius:6px;padding:10px 14px;'
+                            f'font-size:0.88rem;color:#eee">'
+                            f'<strong>Key Signal:</strong> {key_signal}</div>',
+                            unsafe_allow_html=True,
+                        )
+                if thesis:
+                    st.markdown(f"**Inferred Thesis:** {thesis}")
+
+    # Flags warning block
+    flags = result.get("flags", [])
+    if flags:
+        st.markdown("")
+        flag_lines = "\n".join(f"- {f}" for f in flags)
+        st.warning(f"**Notable Positioning Flags:**\n{flag_lines}")
+
+
 def _render_hedge_fund_overlap(positions: list) -> None:
     """Render the Hedge Fund Overlap section for the given positions list.
 
     Shows a table of overlapping holdings inside an st.expander for each
     concentrated hedge fund that holds any ticker from the current portfolio.
     Displays a friendly info message when no overlaps are found.
+    Also renders a Smart Money Analysis section powered by Gemini 2.5 Pro.
 
     Args:
         positions: Raw list of position dicts from get_positions(account_id).
@@ -165,49 +304,417 @@ def _render_hedge_fund_overlap(positions: list) -> None:
         )
         return
 
-    st.caption(
-        f"Checking {len(portfolio_tickers)} portfolio ticker(s) against "
-        f"{len(overlapping)} concentrated fund(s) with overlapping positions."
+    # Count unique portfolio tickers with overlapping funds
+    _overlapping_tickers = set()
+    for _f in overlapping:
+        for _h in _f.get("overlapping_holdings", []):
+            _t = str(_h.get("ticker", "")).upper()
+            if _t:
+                _overlapping_tickers.add(_t)
+    st.info(
+        f"Found {len(overlapping)} concentrated fund{'s' if len(overlapping) != 1 else ''} "
+        f"holding {len(_overlapping_tickers)} of your position{'s' if len(_overlapping_tickers) != 1 else ''}."
     )
 
-    for fund in overlapping:
-        overlap_count = fund["overlap_count"]
-        fund_name = fund["name"] or fund["cik"]
-        header = f"{fund_name} — {overlap_count} shared position{'s' if overlap_count != 1 else ''}"
+    # ── Smart Money Analysis ───────────────────────────────────────────────────
+    st.markdown("---")
+    st.markdown("### Smart Money Analysis")
+    st.caption(
+        "Gemini 2.5 Pro infers investment theses and portfolio-level signals from the 13F data above. "
+        "Results cached 4 hours."
+    )
 
-        with st.expander(header, expanded=False):
-            meta_col1, meta_col2, meta_col3 = st.columns(3)
-            meta_col1.metric("Report Period", fund["report_period"] or "—")
-            meta_col2.metric("Filing Date", fund["filing_date"] or "—")
+    if "hf_analysis" not in st.session_state:
+        st.session_state.hf_analysis = None
 
-            total_val = fund["total_value"]
-            if total_val >= 1e9:
-                val_str = f"${total_val / 1e9:.2f}B"
-            elif total_val >= 1e6:
-                val_str = f"${total_val / 1e6:.2f}M"
-            elif total_val >= 1e3:
-                val_str = f"${total_val / 1e3:.2f}K"
+    hf_run_col, hf_hint_col = st.columns([2, 8])
+    with hf_run_col:
+        hf_run_clicked = st.button(
+            "▶ Run Hedge Fund Intelligence",
+            use_container_width=True,
+            key="hf_gemini_btn",
+        )
+    with hf_hint_col:
+        st.caption("Uses Gemini 2.5 Pro · ~60–180s · Results cached 4 hours · analyzes all overlapping funds")
+
+    _trigger_hf = hf_run_clicked or st.session_state.pop("analyze_all_hf", False)
+
+    if _trigger_hf:
+        # Clear session state to force fresh analysis or cache check
+        st.session_state.hf_analysis = None
+        cached = get_latest_hedge_fund_analysis(portfolio_tickers)
+        if cached is not None:
+            st.session_state.hf_analysis = {**cached, "from_cache": True}
+        else:
+            with st.spinner("Gemini 2.5 Pro analyzing hedge fund positioning…"):
+                result = run_hedge_fund_analysis(overlapping, portfolio_tickers)
+            if result is not None and "_error" not in result:
+                save_hedge_fund_analysis(portfolio_tickers, result)
+            st.session_state.hf_analysis = {**(result or {}), "from_cache": False}
+
+    if st.session_state.hf_analysis is not None:
+        hf_entry = st.session_state.hf_analysis
+        from_cache = hf_entry.get("from_cache", False)
+        if from_cache:
+            st.info("Serving cached analysis (< 4 hours old). Click the button again to force a refresh.")
+        _render_hedge_fund_analysis(hf_entry)
+    else:
+        # Check DB on page load (without waiting for button click)
+        auto_cached = get_latest_hedge_fund_analysis(portfolio_tickers)
+        if auto_cached is not None:
+            st.session_state.hf_analysis = {**auto_cached, "from_cache": True}
+            st.info("Serving cached analysis (< 4 hours old). Click the button above to force a refresh.")
+            _render_hedge_fund_analysis(auto_cached)
+
+
+# ---------------------------------------------------------------------------
+# MPT Analysis
+# ---------------------------------------------------------------------------
+
+def _render_mpt_analysis(positions: list) -> None:
+    """Render the Modern Portfolio Theory analysis section for the given positions list.
+
+    Shows:
+    1. Pre-computed metrics table (return, volatility, Sharpe, HHI, SPY comparison)
+    2. Correlation heatmap via st.dataframe with background_gradient styling
+    3. Per-ticker metrics table (annualized return, volatility, beta, current weight, suggested weight)
+    4. Run MPT Analysis button + cache/freshness controls
+    5. Gemini JSON result: per-ticker cards, portfolio metrics, action items
+
+    Args:
+        positions: Raw list of position dicts from get_positions(account_id).
+    """
+    from math import sqrt as _sqrt
+
+    st.markdown("### Modern Portfolio Theory Analysis")
+    st.caption(
+        "Pre-computes covariance, correlation, Sharpe ratio, beta, and optimal weights in Python, "
+        "then Gemini 2.5 Pro interprets the results. Results cached 4 hours."
+    )
+
+    portfolio_tickers = _get_portfolio_tickers(positions)
+    if not portfolio_tickers:
+        st.info("No ticker symbols found in positions — cannot run MPT analysis.")
+        return
+
+    # ── Session state init ────────────────────────────────────────────────
+    if "mpt_analysis" not in st.session_state:
+        st.session_state.mpt_analysis = None
+
+    # ── Auto-load from DB on page load ────────────────────────────────────
+    if st.session_state.mpt_analysis is None:
+        auto_cached = get_latest_mpt_analysis(portfolio_tickers)
+        if auto_cached is not None:
+            st.session_state.mpt_analysis = {**auto_cached, "from_cache": True}
+
+    # ── Button + hint ─────────────────────────────────────────────────────
+    mpt_run_col, mpt_hint_col = st.columns([2, 8])
+    with mpt_run_col:
+        mpt_run_clicked = st.button(
+            "▶ Run MPT Analysis",
+            use_container_width=True,
+            key="mpt_gemini_btn",
+        )
+    with mpt_hint_col:
+        st.caption(
+            "Uses Gemini 2.5 Pro · ~60–180s · Results cached 4 hours · "
+            "analyzes correlation, Sharpe, beta, and optimal weights"
+        )
+
+    _trigger_mpt = mpt_run_clicked or st.session_state.pop("analyze_all_mpt", False)
+
+    if _trigger_mpt:
+        st.session_state.mpt_analysis = None
+        cached = get_latest_mpt_analysis(portfolio_tickers)
+        if cached is not None:
+            st.session_state.mpt_analysis = {**cached, "from_cache": True}
+        else:
+            with st.spinner("Pre-computing MPT metrics and calling Gemini 2.5 Pro…"):
+                raw_result = run_mpt_analysis(positions)
+            if raw_result is not None and "_error" not in raw_result:
+                metrics_to_save = raw_result.pop("_metrics", {})
+                save_mpt_analysis(portfolio_tickers, raw_result, metrics_to_save)
+                st.session_state.mpt_analysis = {
+                    "result": raw_result,
+                    "metrics": metrics_to_save,
+                    "analyzed_at": "",
+                    "from_cache": False,
+                }
             else:
-                val_str = f"${total_val:,.0f}"
-            meta_col3.metric("Fund Portfolio Value", val_str)
+                # On error, still show pre-computed metrics if available
+                metrics_on_error = raw_result.pop("metrics", {}) if raw_result else {}
+                st.session_state.mpt_analysis = {
+                    "result": raw_result or {"_error": "Analysis failed."},
+                    "metrics": metrics_on_error,
+                    "analyzed_at": "",
+                    "from_cache": False,
+                }
 
-            st.markdown("**Overlapping Holdings**")
-            rows = []
-            for h in fund["overlapping_holdings"]:
-                rows.append({
-                    "Ticker": str(h.get("ticker", "")).upper() or "—",
-                    "Issuer": str(h.get("issuer", "")) or "—",
-                    "% of Fund": f"{h.get('pct_of_portfolio', 0.0):.1f}%",
-                    "Value": (
-                        f"${h.get('value', 0.0) / 1e6:.2f}M"
-                        if h.get("value", 0.0) >= 1e6
-                        else f"${h.get('value', 0.0):,.0f}"
-                    ),
-                    "Type": str(h.get("put_call", "")) or "Equity",
-                })
-            if rows:
-                overlap_df = pd.DataFrame(rows)
-                st.dataframe(overlap_df, use_container_width=True, hide_index=True)
+    # ── Render ────────────────────────────────────────────────────────────
+    mpt_entry = st.session_state.mpt_analysis
+    if mpt_entry is None:
+        return
+
+    from_cache = mpt_entry.get("from_cache", False)
+    analyzed_at = mpt_entry.get("analyzed_at", "")
+    result = mpt_entry.get("result", {})
+    metrics = mpt_entry.get("metrics", {})
+
+    if from_cache and analyzed_at:
+        st.info("Serving cached analysis (< 4 hours old). Click the button again to force a refresh.")
+
+    # ── Error handling ────────────────────────────────────────────────────
+    if result and "_error" in result:
+        st.error(f"Gemini error: {result['_error']}")
+        # Still show pre-computed metrics if available
+        if metrics and "tickers" in metrics:
+            _render_mpt_metrics_tables(metrics)
+        return
+
+    if not result:
+        return
+
+    # ── Pre-computed metrics display ──────────────────────────────────────
+    if metrics and "tickers" in metrics:
+        _render_mpt_metrics_tables(metrics)
+
+    # ── Gemini result: portfolio-level banner ─────────────────────────────
+    ma = result.get("mpt_analysis", {})
+    pm = result.get("portfolio_metrics", {})
+
+    _SCORE_COLOR = {
+        "excellent": "#00c853",
+        "good": "#69f0ae",
+        "fair": "#ffd600",
+        "poor": "#ff1744",
+    }
+    _SCORE_ICON = {
+        "excellent": "★",
+        "good": "◆",
+        "fair": "●",
+        "poor": "▼",
+    }
+    overall_score = ma.get("overall_score", "fair")
+    rebal_priority = ma.get("rebalancing_priority", "moderate")
+    frontier_pos = ma.get("efficient_frontier_position", "below_frontier")
+    score_color = _SCORE_COLOR.get(overall_score, "#ffd600")
+    score_icon = _SCORE_ICON.get(overall_score, "●")
+
+    st.markdown(
+        f"""
+        <div style="background:linear-gradient(135deg,{score_color}22,{score_color}11);
+                    border-left:4px solid {score_color};border-radius:6px;
+                    padding:14px 18px;margin-bottom:12px">
+          <span style="color:{score_color};font-size:1.5rem;font-weight:700">
+            {score_icon} MPT SCORE: {overall_score.upper()}
+          </span>
+          &nbsp;&nbsp;
+          <span style="color:#aaa;font-size:0.9rem">
+            Rebalancing: {rebal_priority.capitalize()} · {frontier_pos.replace('_', ' ').title()}
+          </span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # ── Key inefficiencies as tags ─────────────────────────────────────────
+    inefficiencies = ma.get("key_inefficiencies", [])
+    if inefficiencies:
+        tags_html = "".join(
+            f'<span style="background:#1e1e2e;border:1px solid #555;border-radius:12px;'
+            f'padding:2px 10px;font-size:0.78rem;margin-right:6px;margin-bottom:4px;'
+            f'display:inline-block">{item}</span>'
+            for item in inefficiencies
+        )
+        st.markdown(tags_html, unsafe_allow_html=True)
+        st.markdown("")
+
+    # ── MPT summary ───────────────────────────────────────────────────────
+    summary = ma.get("summary", "")
+    if summary:
+        st.markdown(
+            f"""
+            <div style="background:#1a1a2e;border-left:4px solid {score_color};
+                        border-radius:6px;padding:16px 20px;margin-bottom:16px">
+              <p style="color:#ddd;font-size:0.95rem;margin:0;line-height:1.7">{summary}</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    # ── Per-ticker expandable cards ────────────────────────────────────────
+    per_ticker = result.get("per_ticker", {})
+    if per_ticker:
+        st.markdown("**Per-Ticker MPT Assessment**")
+        _RISK_COLOR = {"high": "#ff1744", "medium": "#ff6d00", "low": "#00c853"}
+        _REC_LABEL = {"reduce": "Reduce", "hold": "Hold", "increase": "Increase"}
+        _REC_COLOR = {"reduce": "#ff1744", "hold": "#aaa", "increase": "#00c853"}
+        for ticker_sym, entry in per_ticker.items():
+            risk = entry.get("risk_assessment", "medium")
+            corr_risk = entry.get("correlation_risk", "medium")
+            rec = entry.get("recommendation", "hold")
+            rationale = entry.get("rationale", "")
+            ann_ret = entry.get("annualized_return_pct", 0.0)
+            ann_vol = entry.get("annualized_volatility_pct", 0.0)
+            beta_val = entry.get("beta", 1.0)
+            curr_wt = entry.get("weight_current_pct", 0.0)
+            sug_wt = entry.get("weight_suggested_pct", 0.0)
+            risk_color = _RISK_COLOR.get(risk, "#aaa")
+            rec_color = _REC_COLOR.get(rec, "#aaa")
+            rec_label = _REC_LABEL.get(rec, rec.capitalize())
+
+            with st.expander(
+                f"**{ticker_sym}** — {rec_label} · {risk.capitalize()} Risk · "
+                f"Ret: {ann_ret:.1f}% · Vol: {ann_vol:.1f}% · β {beta_val:.2f}",
+                expanded=False,
+            ):
+                c1, c2, c3 = st.columns([1, 1, 3])
+                with c1:
+                    st.markdown(
+                        f'<span style="color:{risk_color};font-weight:700;font-size:1rem">'
+                        f'{risk.upper()} RISK</span>',
+                        unsafe_allow_html=True,
+                    )
+                    st.caption(f"Corr Risk: {corr_risk.capitalize()}")
+                with c2:
+                    st.markdown(
+                        f'<span style="color:{rec_color};font-weight:700;font-size:1rem">'
+                        f'{rec_label.upper()}</span>',
+                        unsafe_allow_html=True,
+                    )
+                    wt_delta = sug_wt - curr_wt
+                    delta_color = "#00c853" if wt_delta > 0 else ("#ff1744" if wt_delta < 0 else "#aaa")
+                    st.markdown(
+                        f'<span style="font-size:0.8rem;color:#aaa">Curr: {curr_wt:.1f}% → Opt: {sug_wt:.1f}% </span>'
+                        f'<span style="font-size:0.8rem;color:{delta_color};font-weight:700">({wt_delta:+.1f}%)</span>',
+                        unsafe_allow_html=True,
+                    )
+                with c3:
+                    if rationale:
+                        st.markdown(
+                            f'<div style="background:#1e1e2e;border-radius:6px;padding:10px 14px;'
+                            f'font-size:0.88rem;color:#eee">{rationale}</div>',
+                            unsafe_allow_html=True,
+                        )
+
+    # ── Action items ──────────────────────────────────────────────────────
+    action_items = result.get("action_items", [])
+    if action_items:
+        st.markdown("")
+        st.markdown("**Rebalancing Action Items**")
+        for item in action_items:
+            ticker_sym = item.get("ticker", "")
+            action_text = item.get("action", "")
+            reason_text = item.get("reason", "")
+            if ticker_sym and action_text:
+                _action_lower = action_text.lower()
+                if "reduce" in _action_lower or "sell" in _action_lower or "trim" in _action_lower:
+                    _item_color = "#ff1744"
+                elif "increase" in _action_lower or "add" in _action_lower or "buy" in _action_lower:
+                    _item_color = "#00c853"
+                else:
+                    _item_color = "#aaa"
+                st.markdown(
+                    f'<div style="background:#1e1e2e;border-left:3px solid {_item_color};'
+                    f'border-radius:4px;padding:8px 14px;margin-bottom:6px;font-size:0.88rem">'
+                    f'<strong style="color:{_item_color}">{ticker_sym}</strong>: {action_text}'
+                    + (f'<br><span style="color:#aaa">{reason_text}</span>' if reason_text else "")
+                    + "</div>",
+                    unsafe_allow_html=True,
+                )
+
+
+def _render_mpt_metrics_tables(metrics: dict) -> None:
+    """Render the pre-computed MPT metrics tables and correlation heatmap.
+
+    Shows three sub-sections:
+    1. Portfolio-level summary metrics (4 st.metric widgets)
+    2. Per-ticker metrics as a styled DataFrame
+    3. Correlation heatmap as a styled DataFrame with background_gradient
+
+    Args:
+        metrics: The dict returned by _compute_mpt_metrics() with keys:
+                 tickers, annualized_returns, annualized_vols, betas,
+                 weights, portfolio_return, portfolio_volatility, portfolio_sharpe,
+                 hhi, correlation_matrix, max_sharpe_weights.
+    """
+    tickers = metrics.get("tickers", [])
+    if not tickers:
+        return
+
+    st.markdown("**Pre-Computed MPT Metrics**")
+
+    # ── Portfolio-level summary ───────────────────────────────────────────
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric(
+        "Expected Annual Return",
+        f"{metrics['portfolio_return'] * 100:.2f}%",
+        help="Weighted average of each ticker's 1-year annualized return",
+    )
+    col2.metric(
+        "Portfolio Volatility",
+        f"{metrics['portfolio_volatility'] * 100:.2f}%",
+        help="Annualized portfolio standard deviation accounting for correlations",
+    )
+    col3.metric(
+        "Sharpe Ratio",
+        f"{metrics['portfolio_sharpe']:.3f}",
+        help="(Return − 5% risk-free rate) / Volatility. >1.0 is good.",
+    )
+    col4.metric(
+        "HHI Concentration",
+        f"{metrics['hhi']:.4f}",
+        delta=f"equal-weight baseline: {1.0 / len(tickers):.4f}" if tickers else None,
+        delta_color="off",
+        help="Herfindahl index of weights. Lower = more diversified. Equal-weight N stocks = 1/N.",
+    )
+
+    # ── Per-ticker table ──────────────────────────────────────────────────
+    rows = []
+    for t in tickers:
+        rows.append({
+            "Ticker": t,
+            "Ann. Return %": round(metrics["annualized_returns"].get(t, 0.0) * 100, 2),
+            "Ann. Volatility %": round(metrics["annualized_vols"].get(t, 0.0) * 100, 2),
+            "Beta (vs SPY)": round(metrics["betas"].get(t, 1.0), 3),
+            "Current Weight %": round(metrics["weights"].get(t, 0.0) * 100, 2),
+            "Optimal Weight %": round(metrics["max_sharpe_weights"].get(t, 0.0) * 100, 2),
+        })
+    _mpt_row_h = 35
+    _mpt_hdr_h = 38
+    if rows:
+        ticker_df = pd.DataFrame(rows)
+        st.dataframe(ticker_df, use_container_width=True, hide_index=True,
+                     height=_mpt_hdr_h + _mpt_row_h * len(ticker_df))
+
+    # ── Correlation heatmap ───────────────────────────────────────────────
+    if len(tickers) >= 2:
+        st.markdown("**Correlation Heatmap** (1-year daily returns)")
+        corr_data = metrics.get("correlation_matrix", {})
+        corr_df = pd.DataFrame(
+            [[corr_data.get(t1, {}).get(t2, 0.0) for t2 in tickers] for t1 in tickers],
+            index=tickers,
+            columns=tickers,
+        )
+        def _corr_color(val):
+            try:
+                v = float(val)
+            except (TypeError, ValueError):
+                return ""
+            # red for high positive correlation, green for low/negative
+            if v >= 0.7:
+                return "background-color: #c0392b; color: white"
+            if v >= 0.4:
+                return "background-color: #e67e22; color: white"
+            if v >= 0.1:
+                return "background-color: #f39c12; color: black"
+            if v >= -0.1:
+                return "background-color: #27ae60; color: white"
+            return "background-color: #2980b9; color: white"
+
+        styled_corr = corr_df.style.map(_corr_color).format("{:.3f}")
+        st.dataframe(styled_corr, use_container_width=True,
+                     height=_mpt_hdr_h + _mpt_row_h * len(corr_df))
 
 
 # ---------------------------------------------------------------------------
@@ -642,16 +1149,33 @@ def _color_pnl(val):
         pass
     return ""
 
-# Only color P&L and rate columns — not neutral positives like market value or quantity
-_pnl_keywords = ("profit", "loss", "return", "change", "rate")
-_pnl_cols = [c for c in df_pos.columns if any(kw in c.lower() for kw in _pnl_keywords)]
-styled = df_pos.style
-if _pnl_cols:
-    styled = styled.map(_color_pnl, subset=_pnl_cols)
-_row_height = 35
-_header_height = 38
-st.dataframe(styled, use_container_width=True, hide_index=True,
-             height=_header_height + _row_height * len(df_pos))
+_pos_tab, _mpt_tab = st.tabs(["Positions Table", "MPT Analysis"])
+
+with _pos_tab:
+    # Only color P&L and rate columns — not neutral positives like market value or quantity
+    _pnl_keywords = ("profit", "loss", "return", "change", "rate")
+    _pnl_cols = [c for c in df_pos.columns if any(kw in c.lower() for kw in _pnl_keywords)]
+    styled = df_pos.style
+    if _pnl_cols:
+        styled = styled.map(_color_pnl, subset=_pnl_cols)
+    _row_height = 35
+    _header_height = 38
+    st.dataframe(styled, use_container_width=True, hide_index=True,
+                 height=_header_height + _row_height * len(df_pos))
+
+with _mpt_tab:
+    _render_mpt_analysis(positions_result)
+
+# ---------------------------------------------------------------------------
+# Analyze Everything
+# ---------------------------------------------------------------------------
+st.markdown("---")
+if st.button("⚡ Analyze Everything", use_container_width=True, key="analyze_everything_btn"):
+    st.session_state.analyze_all_news = True
+    st.session_state.analyze_all_options = True
+    st.session_state.analyze_all_hf = True
+    st.session_state.analyze_all_mpt = True
+    st.rerun()
 
 if not tickers:
     st.warning("Could not extract ticker symbols from position data — news analysis unavailable.")
@@ -695,23 +1219,22 @@ if selected_ticker and selected_ticker != "— Select a stock —":
         _render_analysis(selected_ticker, cached["result"])
 
 # Analyze all positions
-if analyze_all:
+_trigger_all_news = analyze_all or st.session_state.pop("analyze_all_news", False)
+if _trigger_all_news:
     progress = st.progress(0, text="Starting analysis…")
-    for idx, ticker in enumerate(tickers):
-        if ticker in st.session_state.news_results and not st.session_state.news_results[ticker].get("from_db", False):
-            # Already analyzed fresh this session — skip without DB overhead
-            progress.progress((idx + 1) / len(tickers), text=f"Skipping {ticker} (session cache)")
-            continue
+    completed = 0
 
-        progress.progress(idx / len(tickers), text=f"Checking cache for {ticker}…")
-        with st.spinner(f"Loading {ticker}…"):
-            entry = _load_or_analyze(ticker)
-        if entry.get("from_db", False):
-            progress.progress((idx + 1) / len(tickers), text=f"Using DB cache: {ticker}")
-        else:
-            progress.progress((idx + 1) / len(tickers), text=f"Done (Gemini): {ticker}")
-            time.sleep(2)
+    def _analyze_ticker(ticker):
+        return ticker, _load_or_analyze(ticker)
 
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = {executor.submit(_analyze_ticker, t): t for t in tickers}
+        for future in as_completed(futures):
+            ticker, entry = future.result()
+            st.session_state.news_results[ticker] = entry
+            completed += 1
+            label = "Gemini" if not entry.get("from_db") else "cache"
+            progress.progress(completed / len(tickers), text=f"Done ({label}): {ticker}")
     progress.empty()
 
 # Display all cached results
@@ -985,42 +1508,50 @@ def _options_analysis_ui(tickers: list[str]) -> None:
     with oa_col_b:
         opt_analyze_all = st.button("Analyze All Positions", use_container_width=True, key="opt_analyze_all_btn")
 
-    if opt_analyze_all:
+    _trigger_all_options = opt_analyze_all or st.session_state.pop("analyze_all_options", False)
+    if _trigger_all_options:
         oa_progress = st.progress(0, text="Starting options analysis…")
-        for idx, t in enumerate(tickers):
-            oa_progress.progress(idx / len(tickers), text=f"Fetching options for {t}…")
+        oa_completed = 0
+
+        def _analyze_options_ticker(t):
+            """Worker: fetch price/chain, calc Greeks, run Gemini. Returns (sess_key, entry_or_None)."""
+            from datetime import datetime as _dt_w, timezone as _tz_w
             try:
                 t_price, t_expirations = _fetch_price_and_expirations(t)
             except Exception:
-                oa_progress.progress((idx + 1) / len(tickers), text=f"Skipped {t} — could not fetch options")
-                continue
+                return _opt_session_key(t, "", "put"), None
             if not t_expirations or t_price is None:
-                oa_progress.progress((idx + 1) / len(tickers), text=f"Skipped {t} — no options listed")
-                continue
+                return _opt_session_key(t, "", "put"), None
             nearest_expiry = t_expirations[0]
             sess_key = _opt_session_key(t, nearest_expiry, "put")
             cached_db = get_latest_options_analysis(t, nearest_expiry, "put")
             if cached_db is not None and is_options_analysis_fresh(cached_db.get("analyzed_at", "")):
-                if sess_key not in st.session_state.options_results:
-                    st.session_state.options_results[sess_key] = {**cached_db, "from_db": True}
-                oa_progress.progress((idx + 1) / len(tickers), text=f"Using cache: {t}")
-                continue
+                return sess_key, {**cached_db, "from_db": True}
             try:
                 t_calls, t_puts = _fetch_chain(t, nearest_expiry)
                 t_calls_display = _build_options_display_df(t_calls, t_price, nearest_expiry, "call")
                 t_puts_display  = _build_options_display_df(t_puts,  t_price, nearest_expiry, "put")
             except Exception:
-                oa_progress.progress((idx + 1) / len(tickers), text=f"Skipped {t} — chain fetch failed")
-                continue
-            oa_progress.progress(idx / len(tickers), text=f"Analyzing {t} with Gemini…")
+                return sess_key, None
             result = run_options_analysis(t, t_price, nearest_expiry, "put", t_calls, t_puts, t_calls_display, t_puts_display)
             if result and "_error" not in result:
                 save_options_analysis(t, nearest_expiry, "put", t_price, result)
-            from datetime import datetime as _dt2, timezone as _tz2
-            entry = {**result, "analyzed_at": _dt2.now(_tz2.utc).strftime("%Y-%m-%dT%H:%M:%S"), "from_db": False}
-            st.session_state.options_results[sess_key] = entry
-            oa_progress.progress((idx + 1) / len(tickers), text=f"Done: {t}")
-            time.sleep(2)
+            analyzed_at = _dt_w.now(_tz_w.utc).strftime("%Y-%m-%dT%H:%M:%S")
+            entry = {**result, "analyzed_at": analyzed_at, "from_db": False}
+            return sess_key, entry
+
+        with ThreadPoolExecutor(max_workers=3) as oa_executor:
+            oa_futures = {oa_executor.submit(_analyze_options_ticker, t): t for t in tickers}
+            for oa_future in as_completed(oa_futures):
+                t = oa_futures[oa_future]
+                sess_key, entry = oa_future.result()
+                oa_completed += 1
+                if entry is None:
+                    oa_progress.progress(oa_completed / len(tickers), text=f"Skipped {t}")
+                else:
+                    st.session_state.options_results[sess_key] = entry
+                    label = "cache" if entry.get("from_db") else "Gemini"
+                    oa_progress.progress(oa_completed / len(tickers), text=f"Done ({label}): {t}")
         oa_progress.empty()
 
     if opt_ticker and opt_ticker != "— Select a stock —":
@@ -1136,8 +1667,7 @@ def _options_analysis_ui(tickers: list[str]) -> None:
 _options_analysis_ui(tickers)
 
 # ---------------------------------------------------------------------------
-# Hedge Fund Overlap
+# Smart Money Analysis
 # ---------------------------------------------------------------------------
 st.markdown("---")
-st.subheader("Hedge Fund Overlap")
 _render_hedge_fund_overlap(positions_result)

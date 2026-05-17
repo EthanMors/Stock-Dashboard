@@ -343,6 +343,170 @@ def is_options_analysis_fresh(analyzed_at_str: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Hedge Fund Analysis cache helpers
+# ---------------------------------------------------------------------------
+
+_HF_TTL_HOURS = 4  # same TTL as options analysis
+
+
+def _make_ticker_key(portfolio_tickers: list) -> str:
+    """Return a stable string key for a set of portfolio tickers."""
+    return ",".join(sorted(t.upper() for t in portfolio_tickers if t))
+
+
+def save_hedge_fund_analysis(portfolio_tickers: list, result_dict: dict) -> None:
+    """Persist a hedge fund intelligence analysis result for this portfolio snapshot.
+
+    Parameters
+    ----------
+    portfolio_tickers : List of ticker strings currently in the portfolio.
+    result_dict       : The dict returned by run_hedge_fund_analysis().
+    """
+    ticker_key = _make_ticker_key(portfolio_tickers)
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    conn = _get_connection()
+    try:
+        conn.execute(
+            """
+            INSERT INTO hedge_fund_analysis (ticker_key, result_json, analyzed_at)
+            VALUES (?, ?, ?)
+            """,
+            (ticker_key, json.dumps(result_dict), now_iso),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_latest_hedge_fund_analysis(portfolio_tickers: list) -> Optional[dict]:
+    """Return the most recent hedge fund analysis for this portfolio snapshot, or None.
+
+    Returns None when no row exists or when the most recent row is older than
+    _HF_TTL_HOURS hours (4 hours, same TTL as options analysis).
+
+    Parameters
+    ----------
+    portfolio_tickers : List of ticker strings currently in the portfolio.
+    """
+    ticker_key = _make_ticker_key(portfolio_tickers)
+    conn = _get_connection()
+    try:
+        row = conn.execute(
+            """
+            SELECT result_json, analyzed_at
+            FROM   hedge_fund_analysis
+            WHERE  ticker_key = ?
+            ORDER  BY analyzed_at DESC
+            LIMIT  1
+            """,
+            (ticker_key,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if row is None:
+        return None
+
+    analyzed_at_str = row["analyzed_at"]
+    # Check TTL — reuse the same logic as is_options_analysis_fresh
+    if not is_options_analysis_fresh(analyzed_at_str):
+        return None
+
+    try:
+        return json.loads(row["result_json"])
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+# ---------------------------------------------------------------------------
+# MPT Analysis cache helpers
+# ---------------------------------------------------------------------------
+
+_MPT_TTL_HOURS = 4  # cached MPT analysis is fresh for this many hours
+
+
+def save_mpt_analysis(portfolio_tickers: list, result: dict, metrics: dict) -> None:
+    """Persist an MPT analysis result and its pre-computed metrics for this portfolio snapshot.
+
+    Parameters
+    ----------
+    portfolio_tickers : List of ticker strings currently in the portfolio.
+    result            : The parsed Gemini JSON dict returned by run_mpt_analysis().
+    metrics           : The pre-computed Python MPT metrics dict from _compute_mpt_metrics().
+    """
+    ticker_key = _make_ticker_key(portfolio_tickers)
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    conn = _get_connection()
+    try:
+        conn.execute(
+            """
+            INSERT INTO mpt_analysis (ticker_key, result_json, metrics_json, analyzed_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (ticker_key, json.dumps(result), json.dumps(metrics), now_iso),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_latest_mpt_analysis(portfolio_tickers: list) -> Optional[dict]:
+    """Return the most recent MPT analysis for this portfolio snapshot, or None.
+
+    Returns None when no row exists or when the most recent row is older than
+    _MPT_TTL_HOURS hours.
+
+    Parameters
+    ----------
+    portfolio_tickers : List of ticker strings currently in the portfolio.
+
+    Returns
+    -------
+    dict with keys: result (parsed Gemini JSON dict), metrics (pre-computed metrics dict),
+    analyzed_at (ISO UTC string). Returns None if not found or stale.
+    """
+    ticker_key = _make_ticker_key(portfolio_tickers)
+    conn = _get_connection()
+    try:
+        row = conn.execute(
+            """
+            SELECT result_json, metrics_json, analyzed_at
+            FROM   mpt_analysis
+            WHERE  ticker_key = ?
+            ORDER  BY analyzed_at DESC
+            LIMIT  1
+            """,
+            (ticker_key,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if row is None:
+        return None
+
+    analyzed_at_str = row["analyzed_at"]
+    if not is_mpt_analysis_fresh(analyzed_at_str):
+        return None
+
+    try:
+        result = json.loads(row["result_json"])
+        metrics = json.loads(row["metrics_json"])
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+    return {"result": result, "metrics": metrics, "analyzed_at": analyzed_at_str}
+
+
+def is_mpt_analysis_fresh(analyzed_at_str: str) -> bool:
+    """Return True if *analyzed_at_str* (UTC ISO) is within _MPT_TTL_HOURS."""
+    try:
+        analyzed_at = datetime.fromisoformat(analyzed_at_str).replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) - analyzed_at < timedelta(hours=_MPT_TTL_HOURS)
+    except (ValueError, TypeError):
+        return False
+
+
+# ---------------------------------------------------------------------------
 # Initialize DB tables on import
 # ---------------------------------------------------------------------------
 init_db()
