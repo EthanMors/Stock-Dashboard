@@ -1,3 +1,6 @@
+import json
+import os
+import sqlite3
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from itertools import groupby
@@ -6,7 +9,7 @@ import numpy as np
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from scipy.stats import norm
 
 from components.gemini_usage_bar import render_gemini_usage_bar
@@ -37,6 +40,8 @@ from data.portfolio_cache import (
 from data.hedge_fund_agent import run_hedge_fund_analysis
 from data.mpt_agent import run_mpt_analysis
 from data.hedge_fund_fetcher import get_all_funds_from_db, refresh_hedge_fund_db
+from data.reddit_fetcher import fetch_top_posts_for_ticker
+from data.wsb_sentiment import analyze_sentiment, analyze_batch_sentiment
 
 st.set_page_config(page_title="Portfolio", layout="wide")
 
@@ -65,6 +70,300 @@ st.title("Portfolio")
 _MIN_TICKER_ARTICLES = 3   # if fewer direct articles, also pull sector news
 _MAX_ARTICLES_TO_SCRAPE = 5
 _TICKER_FIELD_CANDIDATES = ["symbol", "ticker", "tickerSymbol", "stockSymbol", "sym"]
+
+_WSB_DB_PATH         = os.path.join(os.path.dirname(__file__), "..", "db", "wsb.db")
+_WSB_SCHEMA_PATH     = os.path.join(os.path.dirname(__file__), "..", "db", "wsb_schema.sql")
+_WSB_SUMMARY_TTL_HOURS = 4
+
+# ---------------------------------------------------------------------------
+# WSB / Reddit Sentiment DB helpers
+# ---------------------------------------------------------------------------
+
+def _wsb_get_conn() -> sqlite3.Connection:
+    os.makedirs(os.path.dirname(_WSB_DB_PATH), exist_ok=True)
+    conn = sqlite3.connect(_WSB_DB_PATH)
+    conn.row_factory = sqlite3.Row
+    with open(_WSB_SCHEMA_PATH) as fh:
+        conn.executescript(fh.read())
+    return conn
+
+
+def _wsb_is_summary_fresh(analyzed_at: str) -> bool:
+    try:
+        dt = datetime.fromisoformat(analyzed_at.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) - dt < timedelta(hours=_WSB_SUMMARY_TTL_HOURS)
+    except Exception:
+        return False
+
+
+def _wsb_get_cached_summary(ticker: str) -> dict | None:
+    try:
+        conn = _wsb_get_conn()
+        try:
+            row = conn.execute(
+                "SELECT * FROM wsb_ticker_summaries WHERE ticker = ?",
+                (ticker.upper(),),
+            ).fetchone()
+            return dict(row) if row else None
+        finally:
+            conn.close()
+    except Exception:
+        return None
+
+
+def _wsb_get_cached_posts(ticker: str) -> list[dict]:
+    try:
+        conn = _wsb_get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM wsb_posts WHERE ticker = ? ORDER BY score DESC LIMIT 5",
+                (ticker.upper(),),
+            ).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+    except Exception:
+        return []
+
+
+def _wsb_save_post(post: dict) -> None:
+    try:
+        conn = _wsb_get_conn()
+        try:
+            conn.execute(
+                """INSERT OR REPLACE INTO wsb_posts
+                   (post_id, ticker, title, body, author, score, num_comments,
+                    created_utc, url, permalink, fetched_at,
+                    sentiment_score, sentiment_label, analyzed_at)
+                   VALUES
+                   (:post_id, :ticker, :title, :body, :author, :score, :num_comments,
+                    :created_utc, :url, :permalink, :fetched_at,
+                    :sentiment_score, :sentiment_label, :analyzed_at)""",
+                post,
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+
+def _wsb_save_summary(
+    ticker: str,
+    subreddits: list[str],
+    sentiment_score: float,
+    sentiment_label: str,
+    summary: str,
+    post_ids: list[str],
+) -> None:
+    try:
+        conn = _wsb_get_conn()
+        try:
+            conn.execute(
+                """INSERT OR REPLACE INTO wsb_ticker_summaries
+                   (ticker, subreddits, sentiment_score, sentiment_label,
+                    summary, post_ids, analyzed_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    ticker.upper(),
+                    json.dumps(subreddits),
+                    sentiment_score,
+                    sentiment_label,
+                    summary,
+                    json.dumps(post_ids),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+
+def _load_reddit_sentiment(ticker: str) -> dict:
+    """Fetch Reddit sentiment for ticker from cache or live.
+
+    Returns a dict with keys:
+        summary_row (dict|None), posts (list[dict]),
+        from_cache (bool), error (str|None).
+    Catches all exceptions so a failure for one ticker cannot break the page.
+    """
+    _default = {"summary_row": None, "posts": [], "from_cache": False, "error": None}
+    try:
+        cached_summary = _wsb_get_cached_summary(ticker)
+        if cached_summary and _wsb_is_summary_fresh(cached_summary.get("analyzed_at", "")):
+            return {
+                "summary_row": cached_summary,
+                "posts": _wsb_get_cached_posts(ticker),
+                "from_cache": True,
+                "error": None,
+            }
+
+        posts, subreddits = fetch_top_posts_for_ticker(ticker)
+        if not posts:
+            return {**_default, "error": f"No Reddit posts found for {ticker}."}
+
+        analyzed_posts: list[dict] = []
+        for post in posts:
+            try:
+                s = analyze_sentiment(post["title"], post["body"], ticker)
+            except Exception:
+                s = {"sentiment_score": 0.0, "sentiment_label": "neutral"}
+            full = {
+                **post,
+                "sentiment_score": s["sentiment_score"],
+                "sentiment_label": s["sentiment_label"],
+                "analyzed_at": datetime.now(timezone.utc).isoformat(),
+            }
+            _wsb_save_post(full)
+            analyzed_posts.append(full)
+
+        try:
+            batch = analyze_batch_sentiment(posts, ticker)
+        except Exception:
+            scores = [p.get("sentiment_score", 0.0) for p in analyzed_posts]
+            avg = sum(scores) / len(scores) if scores else 0.0
+            batch = {
+                "sentiment_score": avg,
+                "sentiment_label": "positive" if avg > 0.1 else "negative" if avg < -0.1 else "neutral",
+                "summary": "",
+            }
+
+        _wsb_save_summary(
+            ticker=ticker,
+            subreddits=subreddits,
+            sentiment_score=batch["sentiment_score"],
+            sentiment_label=batch["sentiment_label"],
+            summary=batch.get("summary", ""),
+            post_ids=[p["post_id"] for p in posts],
+        )
+        return {
+            "summary_row": _wsb_get_cached_summary(ticker),
+            "posts": analyzed_posts,
+            "from_cache": False,
+            "error": None,
+        }
+    except Exception as exc:
+        return {**_default, "error": str(exc)}
+
+
+# ---------------------------------------------------------------------------
+# WSB render helpers
+# ---------------------------------------------------------------------------
+
+_WSB_SENTIMENT_COLOR = {"positive": "#00c853", "negative": "#ff1744", "neutral": "#ffd600"}
+_WSB_SENTIMENT_ICON  = {"positive": "▲", "negative": "▼", "neutral": "●"}
+
+
+def _render_wsb_post(post: dict, idx: int) -> None:
+    label   = post.get("sentiment_label", "neutral")
+    icon    = _WSB_SENTIMENT_ICON.get(label, "●")
+    sub     = post.get("subreddit", "")
+    sub_tag = f"[r/{sub}] " if sub else ""
+    score_str = f"{post['score']:,}" if post.get("score") is not None else "—"
+    header  = f"{icon} {sub_tag}{post.get('title', '')[:80]}"
+
+    with st.expander(header, expanded=(idx == 0)):
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Upvotes",   score_str)
+        c2.metric("Comments",  post.get("num_comments", "—"))
+        c3.metric("Sentiment", label.capitalize())
+        c4.metric("Score",     f"{post.get('sentiment_score', 0.0):.2f}")
+
+        body = post.get("body", "")
+        if body:
+            st.markdown(body[:600] + ("…" if len(body) > 600 else ""))
+
+        permalink = post.get("permalink", "")
+        if permalink:
+            st.markdown(f"[Open on Reddit ↗]({permalink})")
+        st.caption(
+            f"Posted by u/{post.get('author', '?')} · "
+            f"r/{post.get('subreddit', '?')} · "
+            f"{'From DB cache' if post.get('analyzed_at') else 'Just analyzed'}"
+        )
+
+
+def _render_wsb_ticker_result(ticker: str, entry: dict) -> None:
+    error = entry.get("error")
+    if error:
+        st.warning(f"**{ticker}**: {error}")
+        return
+
+    summary_row = entry.get("summary_row")
+    posts       = entry.get("posts", [])
+    from_cache  = entry.get("from_cache", False)
+
+    if not summary_row and not posts:
+        st.info(f"No Reddit data available for **{ticker}**.")
+        return
+
+    if summary_row:
+        label   = summary_row.get("sentiment_label", "neutral")
+        score   = summary_row.get("sentiment_score", 0.0)
+        summary = summary_row.get("summary", "")
+        color   = _WSB_SENTIMENT_COLOR.get(label, "#ffd600")
+        icon    = _WSB_SENTIMENT_ICON.get(label, "●")
+
+        try:
+            subreddits_searched = json.loads(summary_row.get("subreddits", "[]"))
+        except (json.JSONDecodeError, TypeError):
+            subreddits_searched = []
+        subreddit_tags = " · ".join(f"r/{s}" for s in subreddits_searched)
+
+        st.markdown(
+            f"""
+            <div style="background:linear-gradient(135deg,{color}22,{color}11);
+                        border-left:4px solid {color};border-radius:6px;
+                        padding:14px 18px;margin-bottom:12px">
+              <span style="color:{color};font-size:1.3rem;font-weight:700">
+                {icon} {label.capitalize()} &mdash; Score: {score:+.2f}
+              </span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        if summary:
+            st.markdown(
+                f"""
+                <div style="background:#1a1a2e;border-left:4px solid {color};
+                            border-radius:6px;padding:14px 18px;margin-bottom:12px">
+                  <p style="color:#ddd;font-size:0.92rem;margin:0;line-height:1.6">{summary}</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        if subreddit_tags:
+            st.caption(f"Searched: {subreddit_tags}")
+
+    if posts:
+        n_pos    = sum(1 for p in posts if p.get("sentiment_label") == "positive")
+        n_neg    = sum(1 for p in posts if p.get("sentiment_label") == "negative")
+        avg_sc   = sum(p.get("sentiment_score", 0.0) for p in posts) / len(posts)
+
+        mc1, mc2, mc3, mc4 = st.columns(4)
+        mc1.metric("Posts Found", len(posts))
+        mc2.metric("▲ Bullish",  n_pos)
+        mc3.metric("▼ Bearish",  n_neg)
+        mc4.metric("Avg Score",  f"{avg_sc:.2f}")
+        st.markdown("")
+
+        for i, post in enumerate(posts):
+            _render_wsb_post(post, i)
+
+    if from_cache and summary_row:
+        analyzed_at = summary_row.get("analyzed_at", "")
+        if analyzed_at:
+            st.caption(
+                f"Cached from {analyzed_at[:16]} UTC · "
+                f"Re-runs after {_WSB_SUMMARY_TTL_HOURS}h"
+            )
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1175,6 +1474,7 @@ if st.button("⚡ Analyze Everything", use_container_width=True, key="analyze_ev
     st.session_state.analyze_all_options = True
     st.session_state.analyze_all_hf = True
     st.session_state.analyze_all_mpt = True
+    st.session_state.analyze_all_reddit = True
     st.rerun()
 
 if not tickers:
@@ -1665,6 +1965,107 @@ def _options_analysis_ui(tickers: list[str]) -> None:
 
 
 _options_analysis_ui(tickers)
+
+# ---------------------------------------------------------------------------
+# Reddit Sentiment
+# ---------------------------------------------------------------------------
+st.markdown("---")
+st.subheader("📡 Reddit Sentiment")
+st.caption("WSB and general finance subreddit crowd sentiment for each position, powered by Gemini AI.")
+
+
+@st.fragment
+def _reddit_sentiment_ui(tickers: list[str]) -> None:
+    if "wsb_results" not in st.session_state:
+        st.session_state.wsb_results = {}
+
+    rsent_col_a, rsent_col_b = st.columns([3, 1])
+    with rsent_col_a:
+        rsent_ticker = st.selectbox(
+            "Analyze Reddit sentiment for",
+            ["— Select a stock —"] + tickers,
+            key="rsent_ticker_select",
+        )
+    with rsent_col_b:
+        rsent_analyze_all = st.button(
+            "Analyze All Positions",
+            use_container_width=True,
+            key="rsent_analyze_all_btn",
+        )
+
+    _trigger_all = rsent_analyze_all or st.session_state.pop("analyze_all_reddit", False)
+    if _trigger_all:
+        rsent_progress = st.progress(0, text="Starting Reddit sentiment analysis…")
+        rsent_completed = 0
+
+        def _fetch_wsb(t):
+            return t, _load_reddit_sentiment(t)
+
+        with ThreadPoolExecutor(max_workers=3) as rsent_exec:
+            rsent_futures = {rsent_exec.submit(_fetch_wsb, t): t for t in tickers}
+            for rsent_future in as_completed(rsent_futures):
+                t = rsent_futures[rsent_future]
+                try:
+                    t_key, entry = rsent_future.result()
+                except Exception as exc:
+                    t_key = t
+                    entry = {"summary_row": None, "posts": [], "from_cache": False, "error": str(exc)}
+                rsent_completed += 1
+                st.session_state.wsb_results[t_key] = entry
+                tag = "cache" if entry.get("from_cache") else ("error" if entry.get("error") else "Gemini")
+                rsent_progress.progress(rsent_completed / len(tickers), text=f"Done ({tag}): {t_key}")
+        rsent_progress.empty()
+
+    if rsent_ticker and rsent_ticker != "— Select a stock —":
+        run_col, hint_col = st.columns([2, 8])
+        with run_col:
+            rsent_run = st.button(
+                "▶ Run Reddit Analysis",
+                use_container_width=True,
+                key="rsent_run_btn",
+            )
+        with hint_col:
+            st.caption(f"Uses Reddit API + Gemini · ~30–90s · Results cached {_WSB_SUMMARY_TTL_HOURS}h")
+
+        if rsent_run:
+            st.session_state.wsb_results.pop(rsent_ticker, None)
+            with st.spinner(f"Fetching Reddit posts and analyzing sentiment for {rsent_ticker}…"):
+                entry = _load_reddit_sentiment(rsent_ticker)
+            st.session_state.wsb_results[rsent_ticker] = entry
+
+        if rsent_ticker in st.session_state.wsb_results:
+            entry = st.session_state.wsb_results[rsent_ticker]
+            if entry.get("from_cache"):
+                st.info(f"Serving cached analysis (< {_WSB_SUMMARY_TTL_HOURS}h old). Click ▶ to force refresh.")
+            elif not entry.get("error"):
+                st.success("Fresh analysis complete.")
+            _render_wsb_ticker_result(rsent_ticker, entry)
+
+    if st.session_state.wsb_results:
+        st.markdown("### Reddit Sentiment Results")
+        for t, entry in st.session_state.wsb_results.items():
+            summary_row = entry.get("summary_row")
+            error       = entry.get("error")
+            if error:
+                exp_label = f"**{t}** — ERROR"
+            elif summary_row:
+                lbl = summary_row.get("sentiment_label", "neutral").upper()
+                sc  = summary_row.get("sentiment_score", 0.0)
+                exp_label = f"**{t}** — {lbl} ({sc:+.2f})"
+            else:
+                exp_label = f"**{t}** — NO DATA"
+            if entry.get("from_cache"):
+                exp_label += " [cached]"
+
+            with st.expander(exp_label, expanded=False):
+                _render_wsb_ticker_result(t, entry)
+
+        if st.button("Clear Reddit Results", key="wsb_clear_btn"):
+            st.session_state.wsb_results = {}
+            st.rerun()
+
+
+_reddit_sentiment_ui(tickers)
 
 # ---------------------------------------------------------------------------
 # Smart Money Analysis
