@@ -5,6 +5,7 @@ from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 
 from components.gemini_usage_bar import render_gemini_usage_bar
+from analytics.patterns import DetectedPattern, PatternDetectionEngine
 
 st.set_page_config(page_title="Technical Analysis", page_icon="📈", layout="wide")
 render_gemini_usage_bar()
@@ -37,6 +38,37 @@ _EMA_PALETTE = [
 
 _UP   = "#26a69a"
 _DOWN = "#ef5350"
+
+# Pattern detection UI constants
+_PATTERN_LABELS = {
+    "bos_bullish": "BOS ↑", "bos_bearish": "BOS ↓",
+    "choch_bullish": "CHoCH ↑", "choch_bearish": "CHoCH ↓",
+    "breakout_resistance": "Resistance Break ↑", "breakout_support": "Support Break ↓",
+    "bull_flag": "Bull Flag", "bear_flag": "Bear Flag",
+    "pennant_bull": "Bull Pennant", "pennant_bear": "Bear Pennant",
+    "asc_triangle": "Asc. Triangle", "desc_triangle": "Desc. Triangle",
+    "sym_triangle": "Sym. Triangle",
+    "rising_wedge": "Rising Wedge", "falling_wedge": "Falling Wedge",
+    "cup_handle": "Cup & Handle",
+    "head_shoulders": "H&S", "inv_head_shoulders": "Inv. H&S",
+    "double_top": "Double Top", "double_bottom": "Double Bottom",
+    "range_breakout_bull": "Range Break ↑", "range_breakout_bear": "Range Break ↓",
+}
+
+_CONFIDENCE_COLORS = {
+    "Very High": "#26a69a",
+    "High":      "#66bb6a",
+    "Moderate":  "#ffa726",
+    "Low":       "#ef5350",
+    "Very Low":  "#b0bec5",
+}
+
+def _confidence_label(score: float) -> str:
+    if score >= 0.85: return "Very High"
+    if score >= 0.70: return "High"
+    if score >= 0.55: return "Moderate"
+    if score >= 0.40: return "Low"
+    return "Very Low"
 _BB_LINE  = "rgba(100, 149, 237, 0.85)"
 _BB_FILL  = "rgba(100, 149, 237, 0.07)"
 _BB_MID   = "rgba(100, 149, 237, 0.5)"
@@ -76,6 +108,85 @@ def _calc_bollinger(
 
 
 # ---------------------------------------------------------------------------
+# Pattern detection
+# ---------------------------------------------------------------------------
+
+@st.cache_data(ttl=300)
+def _detect_patterns(ticker: str, period: str, interval: str) -> list:
+    """Run the full pattern detection pipeline. Cached 5 minutes."""
+    try:
+        raw = yf.Ticker(ticker.upper()).history(
+            period=period, interval=interval, auto_adjust=True
+        )
+        if raw is None or raw.empty:
+            return []
+        engine = PatternDetectionEngine(raw, ticker=ticker)
+        return engine.detect_all()
+    except Exception:
+        return []
+
+
+def _add_pattern_overlays(
+    fig: go.Figure,
+    patterns: list,
+    df: pd.DataFrame,
+) -> go.Figure:
+    """Add chart annotations for detected patterns (confidence ≥ 0.55)."""
+    shown_sl = shown_tp = False
+    for p in patterns:
+        if p.confidence_score < 0.55:
+            continue
+        label  = _PATTERN_LABELS.get(p.pattern_type, p.pattern_type)
+        color  = _UP if p.direction == "bullish" else _DOWN
+        clabel = _confidence_label(p.confidence_score)
+
+        # Annotation pin at the detection bar
+        try:
+            x_val = p.detected_at_bar
+        except Exception:
+            x_val = df.index[-1]
+
+        y_val = p.entry_price or float(df["close"].iloc[-1])
+
+        fig.add_annotation(
+            x=x_val, y=y_val,
+            text=f"<b>{label}</b><br>{p.confidence_score:.2f} {clabel}",
+            showarrow=True, arrowhead=2, arrowcolor=color, arrowsize=1,
+            ax=0, ay=-40,
+            bgcolor=color, opacity=0.85,
+            font=dict(color="white", size=9),
+            row=1, col=1,
+        )
+
+        # Stop loss line (red dashed) — only for the highest-confidence pattern
+        if not shown_sl and p.stop_loss:
+            fig.add_hline(
+                y=p.stop_loss, line_dash="dash",
+                line_color="rgba(239,83,80,0.6)", line_width=1,
+                annotation_text="SL", annotation_font_size=9,
+                annotation_position="right",
+                row=1, col=1,
+            )
+            shown_sl = True
+
+        # Target line (green dashed) — only for the highest-confidence pattern
+        if not shown_tp and p.target:
+            fig.add_hline(
+                y=p.target, line_dash="dash",
+                line_color="rgba(38,166,154,0.6)", line_width=1,
+                annotation_text="TP", annotation_font_size=9,
+                annotation_position="right",
+                row=1, col=1,
+            )
+            shown_tp = True
+
+        if shown_sl and shown_tp:
+            break
+
+    return fig
+
+
+# ---------------------------------------------------------------------------
 # Chart builder
 # ---------------------------------------------------------------------------
 
@@ -87,6 +198,8 @@ def _build_chart(
     show_bb: bool,
     bb_period: int,
     bb_std: float,
+    patterns: list | None = None,
+    show_patterns: bool = False,
 ) -> go.Figure:
     vol_colors = [
         _UP if c >= o else _DOWN
@@ -192,6 +305,9 @@ def _build_chart(
     fig.update_yaxes(side="right", row=1, col=1)
     fig.update_yaxes(side="right", row=2, col=1, title_text="Vol", title_font_size=10)
 
+    if show_patterns and patterns:
+        fig = _add_pattern_overlays(fig, patterns, df)
+
     return fig
 
 
@@ -199,8 +315,8 @@ def _build_chart(
 # Sidebar — indicator controls
 # ---------------------------------------------------------------------------
 
-def _render_sidebar() -> tuple[bool, bool, int, float]:
-    """Returns (show_emas, show_bb, bb_period, bb_std)."""
+def _render_sidebar() -> tuple[bool, bool, int, float, bool]:
+    """Returns (show_emas, show_bb, bb_period, bb_std, show_patterns)."""
     with st.sidebar:
         st.header("Indicators")
 
@@ -254,7 +370,18 @@ def _render_sidebar() -> tuple[bool, bool, int, float]:
                 key="ta_bb_std", format="%.1f",
             )
 
-    return show_emas, show_bb, int(bb_period), float(bb_std)
+        st.markdown("---")
+
+        # ── Pattern Detection ──────────────────────────────────────────────
+        show_patterns = st.checkbox("Pattern Detection", value=False, key="ta_show_patterns")
+        if show_patterns:
+            st.caption(
+                "Scans for 20+ chart patterns: BOS/CHoCH, flags, triangles, "
+                "wedges, H&S, double tops/bottoms, and more. Annotates chart "
+                "with detected patterns ≥ 0.55 confidence."
+            )
+
+    return show_emas, show_bb, int(bb_period), float(bb_std), show_patterns
 
 
 # ---------------------------------------------------------------------------
@@ -295,7 +422,7 @@ def main() -> None:
             label_visibility="collapsed",
         )
 
-    show_emas, show_bb, bb_period, bb_std = _render_sidebar()
+    show_emas, show_bb, bb_period, bb_std, show_patterns = _render_sidebar()
 
     if not ticker:
         st.info("Enter a ticker symbol above.")
@@ -323,9 +450,16 @@ def main() -> None:
     m4.metric("Low",    f"${latest['Low']:.2f}")
     m5.metric("Volume", f"{int(latest['Volume']):,}")
 
+    # ── Pattern detection (run before chart so overlays are ready) ────────
+    patterns: list = []
+    if show_patterns:
+        with st.spinner("Running pattern detection…"):
+            patterns = _detect_patterns(ticker, period, interval)
+
     # ── Chart ─────────────────────────────────────────────────────────────
     fig = _build_chart(df, ticker, show_emas, st.session_state.ta_ema_periods,
-                       show_bb, bb_period, bb_std)
+                       show_bb, bb_period, bb_std,
+                       patterns=patterns, show_patterns=show_patterns)
     st.plotly_chart(fig, use_container_width=True)
 
     # ── Footer ────────────────────────────────────────────────────────────
@@ -334,6 +468,99 @@ def main() -> None:
         f"{df.index[0].strftime('%Y-%m-%d')} → {df.index[-1].strftime('%Y-%m-%d')} · "
         "Data via yfinance · Cached 60s"
     )
+
+    # ── Pattern Detection section ─────────────────────────────────────────
+    if show_patterns:
+        _render_pattern_section(patterns, ticker)
+
+
+def _render_pattern_section(patterns: list, ticker: str) -> None:
+    """Render the Pattern Detection results table below the chart."""
+    st.markdown("---")
+    st.subheader("🔍 Pattern Detection")
+
+    if not patterns:
+        st.info("No patterns detected for the current timeframe. Try a longer period (3M, 6M, 1Y).")
+        return
+
+    st.caption(
+        f"{len(patterns)} pattern{'s' if len(patterns) != 1 else ''} detected · "
+        "Sorted by confidence · Chart annotations show patterns ≥ 0.55"
+    )
+
+    rows = []
+    for p in patterns:
+        label   = _PATTERN_LABELS.get(p.pattern_type, p.pattern_type)
+        clabel  = _confidence_label(p.confidence_score)
+        color   = _CONFIDENCE_COLORS.get(clabel, "#b0bec5")
+        dir_icon = "↑" if p.direction == "bullish" else "↓"
+        rr_str  = f"{p.risk_reward_ratio:.1f}:1" if p.risk_reward_ratio else "—"
+        entry   = f"${p.entry_price:.2f}"   if p.entry_price  else "—"
+        sl_str  = f"${p.stop_loss:.2f}"     if p.stop_loss    else "—"
+        tp_str  = f"${p.target:.2f}"        if p.target       else "—"
+        vol_str = "✓" if p.volume_confirmed else "—"
+        rows.append({
+            "Pattern":    label,
+            "Dir":        dir_icon,
+            "Confidence": f"{p.confidence_score:.2f}",
+            "Level":      clabel,
+            "Entry":      entry,
+            "Stop":       sl_str,
+            "Target":     tp_str,
+            "R/R":        rr_str,
+            "Vol":        vol_str,
+            "Notes":      p.notes or "—",
+        })
+
+    import pandas as pd
+    tbl = pd.DataFrame(rows)
+    st.dataframe(
+        tbl,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Pattern":    st.column_config.TextColumn("Pattern",    width="medium"),
+            "Dir":        st.column_config.TextColumn("Dir",        width="small"),
+            "Confidence": st.column_config.TextColumn("Confidence", width="small"),
+            "Level":      st.column_config.TextColumn("Level",      width="small"),
+            "Entry":      st.column_config.TextColumn("Entry",      width="small"),
+            "Stop":       st.column_config.TextColumn("Stop",       width="small"),
+            "Target":     st.column_config.TextColumn("Target",     width="small"),
+            "R/R":        st.column_config.TextColumn("R/R",        width="small"),
+            "Vol":        st.column_config.TextColumn("Vol ✓",      width="small"),
+            "Notes":      st.column_config.TextColumn("Notes",      width="large"),
+        },
+    )
+
+    # Detail expander for highest-confidence pattern
+    if patterns:
+        top = patterns[0]
+        top_label = _PATTERN_LABELS.get(top.pattern_type, top.pattern_type)
+        with st.expander(f"Top pattern details — {top_label} ({top.confidence_score:.2f})", expanded=False):
+            cols = st.columns(3)
+            cols[0].markdown(f"**Type:** {top_label}")
+            cols[0].markdown(f"**Direction:** {top.direction.capitalize()}")
+            cols[0].markdown(f"**Bars:** {top.pattern_bars}")
+            cols[1].markdown(f"**Entry:** {f'${top.entry_price:.2f}' if top.entry_price else '—'}")
+            cols[1].markdown(f"**Stop:** {f'${top.stop_loss:.2f}' if top.stop_loss else '—'}")
+            cols[1].markdown(f"**Target:** {f'${top.target:.2f}' if top.target else '—'}")
+            cols[2].markdown(f"**R/R:** {f'{top.risk_reward_ratio:.1f}:1' if top.risk_reward_ratio else '—'}")
+            cols[2].markdown(f"**Vol confirmed:** {'Yes' if top.volume_confirmed else 'No'}")
+            cols[2].markdown(f"**Timeframe:** {top.timeframe}")
+
+            if top.key_levels:
+                st.markdown("**Key Levels:**")
+                kl_cols = st.columns(min(len(top.key_levels), 4))
+                for col_w, (k, v) in zip(kl_cols * 10, top.key_levels.items()):
+                    col_w.metric(k.replace("_", " ").title(), f"${v:.2f}")
+
+            if top.component_scores:
+                st.markdown("**Component Scores:**")
+                sc_data = {k.replace("_", " ").title(): [round(v, 2)] for k, v in top.component_scores.items()}
+                st.dataframe(pd.DataFrame(sc_data), hide_index=True, use_container_width=True)
+
+            if top.notes:
+                st.info(f"Notes: {top.notes}")
 
 
 main()
