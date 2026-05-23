@@ -1,3 +1,7 @@
+import re
+import subprocess
+import time
+
 import streamlit as st
 import pandas as pd
 import yfinance as yf
@@ -6,6 +10,7 @@ import plotly.graph_objects as go
 
 from components.gemini_usage_bar import render_gemini_usage_bar
 from analytics.patterns import DetectedPattern, PatternDetectionEngine
+from data.gemini_tracker import record_call
 
 st.set_page_config(page_title="Technical Analysis", page_icon="📈", layout="wide")
 render_gemini_usage_bar()
@@ -385,6 +390,309 @@ def _render_sidebar() -> tuple[bool, bool, int, float, bool]:
 
 
 # ---------------------------------------------------------------------------
+# Gemini AI Analysis
+# ---------------------------------------------------------------------------
+
+def _run_gemini_ta(prompt: str) -> str:
+    """Call Gemini CLI for technical analysis via stdin (same pattern as wsb_sentiment.py)."""
+    try:
+        result = subprocess.run(
+            ["gemini.cmd", "-p", ""],
+            input=prompt,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            timeout=90,
+        )
+        output = result.stdout.strip()
+        if output:
+            record_call("flash")
+        return output
+    except (subprocess.TimeoutExpired, Exception):
+        return ""
+
+
+def _bars_since_detected(p: DetectedPattern, df_index: pd.Index) -> int:
+    """Return how many bars ago the pattern was detected (0 = current bar)."""
+    try:
+        pos = df_index.get_loc(p.detected_at_bar)
+        return max(0, len(df_index) - 1 - int(pos))
+    except Exception:
+        return 10
+
+
+def _recency_weight(bars_since: int) -> int:
+    if bars_since <= 3:
+        return 3
+    if bars_since <= 8:
+        return 2
+    return 1
+
+
+def _compute_directional_score(patterns: list, df_index: pd.Index) -> float:
+    """Recency-weighted directional score: bullish=positive, bearish=negative."""
+    score = 0.0
+    for p in patterns:
+        bars   = _bars_since_detected(p, df_index)
+        weight = _recency_weight(bars)
+        sign   = 1 if p.direction == "bullish" else -1
+        score += sign * weight * p.confidence_score
+    return score
+
+
+def _build_ta_prompt(
+    ticker: str,
+    period_label: str,
+    df: pd.DataFrame,
+    patterns: list,
+    ema_periods: list[int],
+    show_emas: bool,
+    show_bb: bool,
+    bb_period: int,
+    bb_std: float,
+    pct: float,
+) -> str:
+    latest = df.iloc[-1]
+    close  = float(latest["Close"])
+    volume = int(latest["Volume"])
+
+    ema_lines: list[str] = []
+    if show_emas:
+        for p in sorted(ema_periods):
+            if len(df) >= p:
+                ema_val = float(_calc_ema(df["Close"], p).iloc[-1])
+                rel     = "above" if close > ema_val else "below"
+                ema_lines.append(f"  EMA({p}): ${ema_val:.2f} — price is {rel}")
+
+    bb_line = ""
+    if show_bb and len(df) >= bb_period:
+        upper, mid, lower = _calc_bollinger(df["Close"], bb_period, bb_std)
+        u, m, l = float(upper.iloc[-1]), float(mid.iloc[-1]), float(lower.iloc[-1])
+        bw      = u - l
+        rel_pos = (close - l) / bw if bw > 0 else 0.5
+        if rel_pos > 0.8:
+            pos_desc = "near upper band (potentially overbought)"
+        elif rel_pos < 0.2:
+            pos_desc = "near lower band (potentially oversold)"
+        else:
+            pos_desc = "near middle band"
+        bb_line = (
+            f"BB({bb_period}, {bb_std}): Upper=${u:.2f}, Mid=${m:.2f}, Lower=${l:.2f} "
+            f"— price at {rel_pos:.0%} of band ({pos_desc})"
+        )
+
+    dir_score = _compute_directional_score(patterns, df.index)
+
+    pattern_lines: list[str] = []
+    for p in patterns:
+        label    = _PATTERN_LABELS.get(p.pattern_type, p.pattern_type)
+        bars     = _bars_since_detected(p, df.index)
+        kl       = ", ".join(f"{k.replace('_',' ')}: ${v:.2f}" for k, v in (p.key_levels or {}).items())
+        sl_str   = f"${p.stop_loss:.2f}" if p.stop_loss else "N/A"
+        tp_str   = f"${p.target:.2f}"   if p.target    else "N/A"
+        rr_str   = f"{p.risk_reward_ratio:.1f}:1" if p.risk_reward_ratio else "N/A"
+        pattern_lines.append(
+            f"  - {label} ({p.direction.upper()}, confidence={p.confidence_score:.2f}, "
+            f"detected {bars} bars ago)\n"
+            f"    Key levels: {kl or 'N/A'} | Stop: {sl_str} | Target: {tp_str} | R/R: {rr_str}"
+        )
+
+    sign = "+" if pct >= 0 else ""
+
+    return f"""You are an expert technical analyst. Analyze the following data for {ticker} on a {period_label} timeframe chart and provide a detailed written analysis.
+
+=== MARKET DATA ===
+Ticker: {ticker}
+Timeframe: {period_label}
+Current Price: ${close:.2f}
+% Change: {sign}{pct:.2f}%
+Volume: {volume:,}
+
+=== EXPONENTIAL MOVING AVERAGES ===
+{chr(10).join(ema_lines) if ema_lines else "No EMAs active"}
+
+=== BOLLINGER BANDS ===
+{bb_line if bb_line else "Bollinger Bands not active"}
+
+=== DETECTED PATTERNS ({len(patterns)} total) ===
+{chr(10).join(pattern_lines) if pattern_lines else "No patterns detected for this timeframe"}
+
+=== DIRECTIONAL SCORE ===
+Recency-weighted directional score: {dir_score:+.2f}
+(Positive = bullish bias, Negative = bearish bias; patterns weighted by recency:
+ last 3 bars weight=3, 4-8 bars weight=2, older weight=1; confidence-scaled)
+
+=== YOUR TASK ===
+Provide your analysis in this EXACT format (do not deviate from these section headers):
+
+VERDICT: [Bullish / Bearish / Neutral] — [brief one-line reason]
+CONFIDENCE: [High / Moderate / Low]
+
+ANALYSIS:
+[Write 3-5 detailed paragraphs explaining WHY the technical picture is bullish/bearish/neutral. Reference specific patterns by name, EMA positions relative to price, Bollinger Band context, and key price levels. Explain what each signal means for near-term price action. Be specific and analytical, not generic.]
+
+KEY LEVELS:
+- Support: [specific price levels with brief reason]
+- Resistance: [specific price levels with brief reason]
+- Stop zones: [specific price levels]
+
+INVALIDATION:
+[Describe exactly what price action would invalidate the bullish/bearish thesis. Reference specific levels and conditions that would signal the thesis is wrong.]
+"""
+
+
+def _render_analysis_card(text: str) -> None:
+    """Parse Gemini output and render a styled verdict card + full analysis."""
+    verdict_match = re.search(r"VERDICT:\s*(.+)", text)
+    verdict_line  = verdict_match.group(1).strip() if verdict_match else ""
+
+    verdict_word = "Neutral"
+    if re.search(r"\bBullish\b", verdict_line, re.IGNORECASE):
+        verdict_word = "Bullish"
+    elif re.search(r"\bBearish\b", verdict_line, re.IGNORECASE):
+        verdict_word = "Bearish"
+
+    if verdict_word == "Bullish":
+        border_color = "#26a69a"
+        badge_bg     = "#26a69a"
+        badge_text   = "▲ BULLISH"
+    elif verdict_word == "Bearish":
+        border_color = "#ef5350"
+        badge_bg     = "#ef5350"
+        badge_text   = "▼ BEARISH"
+    else:
+        border_color = "#78909c"
+        badge_bg     = "#455a64"
+        badge_text   = "◆ NEUTRAL"
+
+    reason = re.sub(r"^(Bullish|Bearish|Neutral)\s*[—\-–]\s*", "", verdict_line, flags=re.IGNORECASE).strip()
+
+    conf_match = re.search(r"CONFIDENCE:\s*(.+)", text)
+    confidence = conf_match.group(1).strip() if conf_match else ""
+
+    sections = {}
+    for section in ("ANALYSIS", "KEY LEVELS", "INVALIDATION"):
+        pat   = rf"{section}:\s*\n(.*?)(?=\n(?:ANALYSIS|KEY LEVELS|INVALIDATION):|\Z)"
+        match = re.search(pat, text, re.DOTALL | re.IGNORECASE)
+        sections[section] = match.group(1).strip() if match else ""
+
+    st.markdown(
+        f"""
+        <div style="
+            border: 1px solid {border_color};
+            border-left: 4px solid {border_color};
+            border-radius: 8px;
+            padding: 16px 20px;
+            background: #161b27;
+            margin-bottom: 16px;
+        ">
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom:8px;">
+                <span style="
+                    background:{badge_bg}; color:white;
+                    font-weight:700; font-size:14px;
+                    padding:4px 12px; border-radius:4px; letter-spacing:1px;
+                ">{badge_text}</span>
+                {"<span style='color:#b0bec5; font-size:13px;'>Confidence: " + confidence + "</span>" if confidence else ""}
+            </div>
+            {"<p style='margin:4px 0 0; color:#eceff1; font-size:14px;'>" + reason + "</p>" if reason else ""}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if sections["ANALYSIS"]:
+        st.markdown("**Analysis**")
+        for para in sections["ANALYSIS"].split("\n\n"):
+            para = para.strip()
+            if para:
+                st.markdown(para)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if sections["KEY LEVELS"]:
+            st.markdown("**Key Levels**")
+            st.markdown(sections["KEY LEVELS"])
+    with col2:
+        if sections["INVALIDATION"]:
+            st.markdown("**Invalidation**")
+            st.markdown(sections["INVALIDATION"])
+
+    if not any(sections.values()):
+        st.markdown(text)
+
+
+def _render_ai_analysis_section(
+    patterns: list,
+    ticker: str,
+    period_label: str,
+    df: pd.DataFrame,
+    pct: float,
+    ema_periods: list[int],
+    show_emas: bool,
+    show_bb: bool,
+    bb_period: int,
+    bb_std: float,
+) -> None:
+    st.markdown("---")
+    st.subheader("🤖 AI Analysis")
+
+    patterns_sig = "_".join(sorted(p.pattern_type for p in patterns))
+    cache_key    = f"ta_ai_{ticker}_{period_label}_{hash(patterns_sig) & 0xFFFFFF}"
+
+    cached   = st.session_state.get(cache_key)
+    is_stale = True
+    if cached:
+        is_stale = (time.time() - cached["ts"]) > 300
+
+    hdr_col, btn_col = st.columns([5, 1])
+    with hdr_col:
+        if cached and not is_stale:
+            age_s   = int(time.time() - cached["ts"])
+            age_str = f"{age_s // 60}m {age_s % 60}s ago" if age_s >= 60 else f"{age_s}s ago"
+            st.caption(
+                f"Gemini technical analysis · Cached {age_str} · "
+                "Click **Run AI Analysis** to refresh"
+            )
+        else:
+            st.caption(
+                "Gemini-powered in-depth technical analysis — references all detected "
+                "patterns, EMA positions, and Bollinger Band context."
+            )
+    with btn_col:
+        run_btn = st.button(
+            "Run AI Analysis",
+            key="ta_ai_run_btn",
+            use_container_width=True,
+            type="primary",
+        )
+
+    if run_btn:
+        prompt = _build_ta_prompt(
+            ticker, period_label, df, patterns,
+            ema_periods, show_emas, show_bb, bb_period, bb_std, pct,
+        )
+        with st.spinner("Gemini is analyzing the technical picture…"):
+            raw = _run_gemini_ta(prompt)
+        if raw:
+            st.session_state[cache_key] = {"ts": time.time(), "text": raw}
+            cached   = st.session_state[cache_key]
+            is_stale = False
+        else:
+            st.error("Gemini returned no response. Check the CLI is available and try again.")
+            return
+
+    if cached and not is_stale:
+        _render_analysis_card(cached["text"])
+    elif not run_btn:
+        st.info(
+            "Click **Run AI Analysis** to generate a Gemini-powered breakdown of "
+            "the detected patterns, EMA alignment, and Bollinger Band position."
+        )
+
+
+# ---------------------------------------------------------------------------
 # Session state
 # ---------------------------------------------------------------------------
 
@@ -471,10 +779,31 @@ def main() -> None:
 
     # ── Pattern Detection section ─────────────────────────────────────────
     if show_patterns:
-        _render_pattern_section(patterns, ticker)
+        _render_pattern_section(
+            patterns, ticker,
+            period_label=period_label,
+            df=df,
+            pct=pct,
+            ema_periods=st.session_state.ta_ema_periods,
+            show_emas=show_emas,
+            show_bb=show_bb,
+            bb_period=bb_period,
+            bb_std=bb_std,
+        )
 
 
-def _render_pattern_section(patterns: list, ticker: str) -> None:
+def _render_pattern_section(
+    patterns: list,
+    ticker: str,
+    period_label: str = "",
+    df: pd.DataFrame | None = None,
+    pct: float = 0.0,
+    ema_periods: list | None = None,
+    show_emas: bool = True,
+    show_bb: bool = True,
+    bb_period: int = 20,
+    bb_std: float = 2.0,
+) -> None:
     """Render the Pattern Detection results table below the chart."""
     st.markdown("---")
     st.subheader("🔍 Pattern Detection")
@@ -512,7 +841,6 @@ def _render_pattern_section(patterns: list, ticker: str) -> None:
             "Notes":      p.notes or "—",
         })
 
-    import pandas as pd
     tbl = pd.DataFrame(rows)
     st.dataframe(
         tbl,
@@ -561,6 +889,21 @@ def _render_pattern_section(patterns: list, ticker: str) -> None:
 
             if top.notes:
                 st.info(f"Notes: {top.notes}")
+
+    # ── AI Analysis ───────────────────────────────────────────────────────────
+    if df is not None:
+        _render_ai_analysis_section(
+            patterns=patterns,
+            ticker=ticker,
+            period_label=period_label,
+            df=df,
+            pct=pct,
+            ema_periods=ema_periods or [],
+            show_emas=show_emas,
+            show_bb=show_bb,
+            bb_period=bb_period,
+            bb_std=bb_std,
+        )
 
 
 main()
