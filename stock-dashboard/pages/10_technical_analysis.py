@@ -131,115 +131,186 @@ def _detect_patterns(ticker: str, period: str, interval: str) -> list:
         return []
 
 
-def _draw_structural_lines(
+def _bar_at_offset(df_index: pd.Index, start_idx, offset: float):
+    """Return the index label at start_idx + offset bars (clamped to df range)."""
+    try:
+        pos    = df_index.get_loc(start_idx)
+        target = max(0, min(int(round(pos + offset)), len(df_index) - 1))
+        return df_index[target]
+    except Exception:
+        return df_index[-1]
+
+
+def _draw_pattern_geometry(
     fig: go.Figure,
     p,
     x_start,
     x_end,
     base_color: str,
+    df: pd.DataFrame,
 ) -> None:
-    """Draw the key price levels that define the detected pattern.
+    """Draw pattern-specific geometric overlays on the price sub-chart (row=1).
 
-    Lines span only the pattern's time window (x_start → x_end) so the
-    chart makes clear *where* and *at what level* the structure formed.
+    Uses actual diagonal lines for trendline-based patterns (flags, triangles,
+    wedges) and scatter markers for peaks, shoulders, and swing points.
     """
-    kl  = p.key_levels or {}
-    pt  = p.pattern_type
-    _TL = "rgba(100,149,237,0.85)"   # cornflower-blue for trendlines
+    kl      = p.key_levels or {}
+    pt      = p.pattern_type
+    col     = base_color
+    _TL     = "rgba(100,149,237,0.9)"   # cornflower-blue trendlines
+    y_lo    = float(df["Low"].min())
+    y_hi    = float(df["High"].max())
 
-    def _span(
-        level: float,
-        label: str,
-        *,
-        dash: str = "dot",
-        width: float = 1.5,
-        lcolor: str | None = None,
-        alpha: float = 0.85,
-    ) -> None:
-        c = lcolor or base_color
-        fig.add_shape(
-            type="line",
-            x0=x_start, y0=level,
-            x1=x_end,   y1=level,
-            line=dict(color=c, width=width, dash=dash),
-            opacity=alpha,
-            row=1, col=1,
-        )
-        fig.add_annotation(
-            x=x_end, y=level,
-            text=f"  {label} ${level:.2f}",
-            showarrow=False,
-            xanchor="left",
-            font=dict(color=c, size=8),
-            bgcolor="rgba(14,17,23,0.72)",
-            borderpad=2,
-            row=1, col=1,
-        )
+    def hline(y: float, label: str, *, dash="dot", width=1.5, lcolor=None, alpha=0.85):
+        """Horizontal level line spanning the pattern's time window."""
+        c = lcolor or col
+        fig.add_shape(type="line", x0=x_start, y0=y, x1=x_end, y1=y,
+                      line=dict(color=c, width=width, dash=dash), opacity=alpha,
+                      row=1, col=1)
+        fig.add_annotation(x=x_end, y=y, text=f"  {label} ${y:.2f}",
+                           showarrow=False, xanchor="left",
+                           font=dict(color=c, size=8),
+                           bgcolor="rgba(14,17,23,0.72)", borderpad=2, row=1, col=1)
 
-    # BOS / CHoCH — the swing level that price broke through
+    def diag(xa, ya: float, xb, yb: float, *, dash="dot", width=1.5, lcolor=None, alpha=0.85):
+        """Diagonal line between two (x, y) chart coordinates."""
+        c = lcolor or col
+        fig.add_shape(type="line", x0=xa, y0=ya, x1=xb, y1=yb,
+                      line=dict(color=c, width=width, dash=dash), opacity=alpha,
+                      row=1, col=1)
+
+    def vline(x, *, dash="dash", width=1.0, lcolor=None, alpha=0.5):
+        """Vertical line spanning the price panel's full height."""
+        c = lcolor or col
+        fig.add_shape(type="line", x0=x, x1=x, y0=y_lo, y1=y_hi,
+                      line=dict(color=c, width=width, dash=dash), opacity=alpha,
+                      row=1, col=1)
+
+    def markers(xs, ys, symbol: str, size: int = 10, *, mcolor=None):
+        """Scatter marker points plotted on the price sub-chart."""
+        c = mcolor or col
+        fig.add_trace(go.Scatter(
+            x=list(xs), y=list(ys), mode="markers",
+            marker=dict(symbol=symbol, size=size, color=c,
+                        line=dict(color="white", width=1)),
+            showlegend=False, hoverinfo="skip",
+        ), row=1, col=1)
+
+    # ── BOS / CHoCH ─────────────────────────────────────────────────────────
     if pt in ("bos_bullish", "choch_bullish", "bos_bearish", "choch_bearish"):
         lvl = kl.get("trigger_level") or kl.get("broken_swing")
         if lvl:
             tag = "CHoCH" if "choch" in pt else "BOS"
-            _span(lvl, tag, dash="dashdot", width=2.0)
+            hline(lvl, tag, dash="dashdot", width=2.0)
+            vline(x_end, alpha=0.4)
+            sym = "triangle-up" if p.direction == "bullish" else "triangle-down"
+            markers([x_start], [lvl], sym, size=11)
 
-    # S/R Breakout — the cluster level that was breached
+    # ── S/R Breakout ─────────────────────────────────────────────────────────
     elif pt == "breakout_resistance":
         lvl = kl.get("resistance")
-        if lvl:
-            _span(lvl, "Resistance", dash="dot", width=1.5)
-
+        if lvl: hline(lvl, "Resistance", dash="dot", width=1.5)
     elif pt == "breakout_support":
         lvl = kl.get("support")
-        if lvl:
-            _span(lvl, "Support", dash="dot", width=1.5)
+        if lvl: hline(lvl, "Support", dash="dot", width=1.5)
 
-    # Flag / Pennant — the parallel/converging channel bounds
+    # ── Flag / Pennant — pole line + diagonal channel trendlines ─────────────
     elif pt in ("bull_flag", "bear_flag", "pennant_bull", "pennant_bear"):
-        fh = kl.get("flag_high")
-        fl = kl.get("flag_low")
-        if fh:
-            _span(fh, "Chan. High", dash="dot", width=1.2, lcolor=_TL)
-        if fl:
-            _span(fl, "Chan. Low",  dash="dot", width=1.2, lcolor=_TL)
+        ph        = kl.get("pole_high")
+        pl        = kl.get("pole_low")
+        fh_end    = kl.get("flag_high")
+        fl_end    = kl.get("flag_low")
+        fh_start  = kl.get("flag_high_start")
+        fl_start  = kl.get("flag_low_start")
+        bar_off   = kl.get("flag_bar_offset", 1.0)
+        flag_x0   = _bar_at_offset(df.index, x_start, bar_off)
 
-    # Triangles / Wedges — trendline values at the breakout bar
+        # Pole: impulse move before the consolidation
+        if ph is not None and pl is not None:
+            py0, py1 = (pl, ph) if p.direction == "bullish" else (ph, pl)
+            diag(x_start, py0, flag_x0, py1, dash="solid", width=1.5, lcolor=col)
+
+        # Channel trendlines (diagonal if start values stored, else horizontal)
+        if fh_start is not None and fh_end is not None:
+            diag(flag_x0, fh_start, x_end, fh_end, dash="dot", width=1.5, lcolor=_TL)
+        elif fh_end is not None:
+            hline(fh_end, "Chan. High", dash="dot", width=1.2, lcolor=_TL)
+
+        if fl_start is not None and fl_end is not None:
+            diag(flag_x0, fl_start, x_end, fl_end, dash="dot", width=1.5, lcolor=_TL)
+        elif fl_end is not None:
+            hline(fl_end, "Chan. Low", dash="dot", width=1.2, lcolor=_TL)
+
+    # ── Triangles / Wedges — diagonal trendlines connecting swing extremes ────
     elif pt in ("asc_triangle", "desc_triangle", "sym_triangle",
                 "rising_wedge", "falling_wedge"):
-        ut = kl.get("upper_trendline")
-        lt = kl.get("lower_trendline")
-        if ut:
-            _span(ut, "Upper TL", dash="dot", width=1.2, lcolor=_TL)
-        if lt:
-            _span(lt, "Lower TL", dash="dot", width=1.2, lcolor=_TL)
+        ut_end   = kl.get("upper_trendline")
+        lt_end   = kl.get("lower_trendline")
+        ut_start = kl.get("upper_start")
+        lt_start = kl.get("lower_start")
 
-    # Double Top / Bottom — the critical neckline
+        if ut_start is not None and ut_end is not None:
+            diag(x_start, ut_start, x_end, ut_end, dash="dot", width=1.5, lcolor=_TL)
+        elif ut_end is not None:
+            hline(ut_end, "Upper TL", dash="dot", width=1.2, lcolor=_TL)
+
+        if lt_start is not None and lt_end is not None:
+            diag(x_start, lt_start, x_end, lt_end, dash="dot", width=1.5, lcolor=_TL)
+        elif lt_end is not None:
+            hline(lt_end, "Lower TL", dash="dot", width=1.2, lcolor=_TL)
+
+    # ── Double Top / Bottom — neckline + peak markers ─────────────────────────
     elif pt in ("double_top", "double_bottom"):
-        nk = kl.get("neckline")
-        if nk:
-            _span(nk, "Neckline", dash="dashdot", width=2.0)
+        nk      = kl.get("neckline")
+        lp      = kl.get("left_peak")
+        rp      = kl.get("right_peak")
+        p2_off  = kl.get("peak2_bar_offset", 10.0)
+        peak2_x = _bar_at_offset(df.index, x_start, p2_off)
 
-    # Head & Shoulders — the neckline across trough 1 → trough 2
+        if nk:
+            hline(nk, "Neckline", dash="dashdot", width=2.0)
+        if lp is not None:
+            sym = "triangle-down" if pt == "double_top" else "triangle-up"
+            markers([x_start, peak2_x], [lp, rp if rp is not None else lp], sym, size=12)
+
+    # ── Head & Shoulders / Inv H&S — diagonal neckline + three markers ────────
     elif pt in ("head_shoulders", "inv_head_shoulders"):
-        nk = kl.get("neckline")
-        if nk:
-            _span(nk, "Neckline", dash="dashdot", width=2.0)
+        t1       = kl.get("trough_1")
+        nk       = kl.get("neckline")
+        lp       = kl.get("left_peak")
+        hd       = kl.get("head")
+        rp       = kl.get("right_peak")
+        hd_off   = kl.get("head_bar_offset", 0.0)
+        rs_off   = kl.get("right_shoulder_bar_offset", 0.0)
 
-    # Cup & Handle — the cup rim (average of left/right rims)
+        if t1 is not None and nk is not None:
+            diag(x_start, t1, x_end, nk, dash="dashdot", width=2.0)
+
+        if lp is not None and hd is not None and rp is not None:
+            hd_x = _bar_at_offset(df.index, x_start, hd_off)
+            rs_x = _bar_at_offset(df.index, x_start, rs_off)
+            sym  = "triangle-down" if pt == "head_shoulders" else "triangle-up"
+            markers([x_start, hd_x, rs_x], [lp, hd, rp], sym, size=10)
+
+    # ── Cup & Handle — horizontal rim line + cup bottom marker ───────────────
     elif pt == "cup_handle":
-        lr = kl.get("cup_left_rim")
-        rr = kl.get("cup_right_rim")
-        if lr and rr:
-            _span((lr + rr) / 2.0, "Cup Rim", dash="dashdot", width=2.0)
+        lr        = kl.get("cup_left_rim")
+        rr        = kl.get("cup_right_rim")
+        cb        = kl.get("cup_bottom")
+        bot_off   = kl.get("bottom_bar_offset", 0.0)
+        rim_off   = kl.get("right_rim_bar_offset", 0.0)
+        if lr is not None and rr is not None:
+            hline((lr + rr) / 2.0, "Cup Rim", dash="dashdot", width=2.0)
+        if cb is not None:
+            bot_x = _bar_at_offset(df.index, x_start, bot_off)
+            markers([bot_x], [cb], "circle", size=9)
 
-    # Range Consolidation Breakout — ceiling and floor of the box
+    # ── Range Consolidation Breakout — horizontal ceiling and floor ───────────
     elif pt in ("range_breakout_bull", "range_breakout_bear"):
         rh = kl.get("range_high")
         rl = kl.get("range_low")
-        if rh:
-            _span(rh, "Range High", dash="dot", width=1.5)
-        if rl:
-            _span(rl, "Range Low",  dash="dot", width=1.5)
+        if rh: hline(rh, "Range High", dash="dot", width=1.5)
+        if rl: hline(rl, "Range Low",  dash="dot", width=1.5)
 
 
 def _add_pattern_overlays(
@@ -247,13 +318,13 @@ def _add_pattern_overlays(
     patterns: list,
     df: pd.DataFrame,
 ) -> go.Figure:
-    """Annotate each pattern ≥ 0.55 confidence with:
-    • a semi-transparent shaded region covering the pattern's time span
-    • structural level lines showing the exact price levels that triggered detection
-    • a label pin at the detection bar
-    SL / TP lines are drawn only for the highest-confidence pattern.
+    """For each detected pattern ≥ 0.55 confidence draw:
+    • a shaded region over the pattern's time span
+    • pattern-specific geometric lines and markers (diagonal where applicable)
+    • a label pin badge at the detection bar
+    SL / TP lines drawn for the highest-confidence pattern only.
     """
-    _MAX_GEOM  = 4   # cap full geometric overlay to avoid clutter
+    _MAX_GEOM  = 4
     geom_drawn = 0
     shown_sl   = shown_tp = False
 
@@ -265,7 +336,6 @@ def _add_pattern_overlays(
         color  = _UP if p.direction == "bullish" else _DOWN
         clabel = _confidence_label(p.confidence_score)
 
-        # Safe x boundaries — fall back to df edges if index lookup fails
         try:
             x_start = p.start_index
             if x_start not in df.index:
@@ -280,41 +350,30 @@ def _add_pattern_overlays(
         except Exception:
             x_end = df.index[-1]
 
-        # ── Geometric overlays (capped at _MAX_GEOM) ──────────────────────────
         if geom_drawn < _MAX_GEOM:
-            # Shaded time-span rectangle
             fig.add_vrect(
-                x0=x_start, x1=x_end,
-                fillcolor=color,
+                x0=x_start, x1=x_end, fillcolor=color,
                 opacity=0.06 if geom_drawn == 0 else 0.03,
-                layer="below",
-                line_width=0,
-                row=1, col=1,
+                layer="below", line_width=0, row=1, col=1,
             )
-            # Structural level lines + labels
-            _draw_structural_lines(fig, p, x_start, x_end, color)
+            _draw_pattern_geometry(fig, p, x_start, x_end, color, df)
             geom_drawn += 1
 
-        # ── Label pin at detection bar ─────────────────────────────────────────
         y_val = p.entry_price or float(df["Close"].iloc[-1])
         fig.add_annotation(
             x=x_end, y=y_val,
             text=f"<b>{label}</b><br>{p.confidence_score:.2f} {clabel}",
             showarrow=True, arrowhead=2, arrowcolor=color, arrowsize=1,
-            ax=0, ay=-40,
-            bgcolor=color, opacity=0.85,
-            font=dict(color="white", size=9),
-            row=1, col=1,
+            ax=0, ay=-40, bgcolor=color, opacity=0.85,
+            font=dict(color="white", size=9), row=1, col=1,
         )
 
-        # ── SL / TP for top pattern only ──────────────────────────────────────
         if not shown_sl and p.stop_loss:
             fig.add_hline(
                 y=p.stop_loss, line_dash="dash",
                 line_color="rgba(239,83,80,0.6)", line_width=1,
                 annotation_text="SL", annotation_font_size=9,
-                annotation_position="right",
-                row=1, col=1,
+                annotation_position="right", row=1, col=1,
             )
             shown_sl = True
 
