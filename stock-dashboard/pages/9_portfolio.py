@@ -1,6 +1,8 @@
 import json
 import os
+import re
 import sqlite3
+import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from itertools import groupby
@@ -42,6 +44,7 @@ from data.mpt_agent import run_mpt_analysis
 from data.hedge_fund_fetcher import get_all_funds_from_db, refresh_hedge_fund_db
 from data.reddit_fetcher import fetch_top_posts_for_ticker
 from data.wsb_sentiment import analyze_sentiment, analyze_batch_sentiment
+from data.portfolio_insights_agent import run_portfolio_insights
 
 st.set_page_config(page_title="Portfolio", layout="wide")
 
@@ -1316,6 +1319,124 @@ def _load_or_analyze(ticker: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# AI Insights rendering helpers
+# ---------------------------------------------------------------------------
+
+_HEALTH_COLOR = {
+    "excellent": "#00c853",
+    "good":      "#69f0ae",
+    "fair":      "#ffd600",
+    "poor":      "#ff1744",
+}
+_HEALTH_ICON = {"excellent": "★", "good": "◆", "fair": "●", "poor": "▼"}
+_URGENCY_COLOR = {"immediate": "#ff1744", "this_week": "#ffd600", "this_month": "#69f0ae"}
+_ACTION_COLOR = {
+    "Buy": "#00c853", "Sell": "#ff1744", "Trim": "#ff6d00",
+    "Hold": "#aaa", "Hedge": "#ffd600", "Rebalance": "#42a5f5", "Watch": "#ab47bc",
+}
+_SEVERITY_COLOR = {"high": "#ff1744", "medium": "#ffd600", "low": "#69f0ae"}
+
+
+def _render_ai_insights(result: dict) -> None:
+    """Render AI Insights from portfolio_insights_agent result dict."""
+    if "_error" in result:
+        st.error(f"Gemini error: {result['_error']}")
+        return
+
+    health = result.get("portfolio_health", {})
+    score  = health.get("score", "fair")
+    one_liner = health.get("one_liner", "")
+    summary   = health.get("summary", "")
+    color = _HEALTH_COLOR.get(score, "#ffd600")
+    icon  = _HEALTH_ICON.get(score, "●")
+
+    # Health banner
+    st.markdown(
+        f"""
+        <div style="background:linear-gradient(135deg,{color}22,{color}11);
+                    border-left:4px solid {color};border-radius:8px;
+                    padding:14px 20px;margin-bottom:14px">
+          <span style="color:{color};font-size:1.4rem;font-weight:700">
+            {icon} PORTFOLIO HEALTH: {score.upper()}
+          </span>
+          {"&nbsp;&nbsp;<span style='color:#ccc;font-size:0.95rem'>" + one_liner + "</span>" if one_liner else ""}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if summary:
+        st.markdown(
+            f'<div style="background:#1a1a2e;border-left:4px solid {color};border-radius:6px;'
+            f'padding:14px 18px;margin-bottom:16px">'
+            f'<p style="color:#ddd;font-size:0.93rem;margin:0;line-height:1.6">{summary}</p></div>',
+            unsafe_allow_html=True,
+        )
+
+    # Cross-signal themes
+    themes = result.get("cross_signal_themes", [])
+    if themes:
+        tags_html = "".join(
+            f'<span style="background:#1e1e2e;border:1px solid #555;border-radius:12px;'
+            f'padding:3px 11px;font-size:0.78rem;margin-right:6px;margin-bottom:4px;'
+            f'display:inline-block">{t}</span>'
+            for t in themes
+        )
+        st.markdown(tags_html, unsafe_allow_html=True)
+        st.markdown("")
+
+    # Top 3 Actions + Key Risks side by side
+    col_act, col_risk = st.columns(2)
+
+    with col_act:
+        st.markdown("**🎯 Top Actions**")
+        for item in result.get("top_actions", [])[:3]:
+            ticker   = item.get("ticker", "?")
+            action   = item.get("action", "?")
+            urgency  = item.get("urgency", "this_month")
+            rationale = item.get("rationale", "")
+            catalyst  = item.get("catalyst", "")
+            ac = _ACTION_COLOR.get(action, "#aaa")
+            uc = _URGENCY_COLOR.get(urgency, "#aaa")
+            urgency_label = urgency.replace("_", " ").title()
+            st.markdown(
+                f'<div style="background:#1e1e2e;border-left:4px solid {ac};border-radius:6px;'
+                f'padding:10px 14px;margin-bottom:8px">'
+                f'<strong style="color:{ac}">{ticker}</strong>'
+                f'&nbsp;<span style="background:{ac}33;color:{ac};padding:1px 7px;border-radius:10px;'
+                f'font-size:0.78rem;font-weight:700">{action}</span>'
+                f'&nbsp;<span style="background:{uc}33;color:{uc};padding:1px 7px;border-radius:10px;'
+                f'font-size:0.72rem">{urgency_label}</span>'
+                + (f'<br><span style="color:#ccc;font-size:0.85rem;line-height:1.4">{rationale}</span>' if rationale else "")
+                + (f'<br><span style="color:#888;font-size:0.78rem">📍 {catalyst}</span>' if catalyst else "")
+                + '</div>',
+                unsafe_allow_html=True,
+            )
+
+    with col_risk:
+        st.markdown("**⚠️ Key Risks**")
+        for item in result.get("key_risks", [])[:3]:
+            risk     = item.get("risk", "?")
+            severity = item.get("severity", "medium")
+            detail   = item.get("detail", "")
+            rc = _SEVERITY_COLOR.get(severity, "#aaa")
+            st.markdown(
+                f'<div style="background:#1e1e2e;border-left:4px solid {rc};border-radius:6px;'
+                f'padding:10px 14px;margin-bottom:8px">'
+                f'<strong style="color:{rc}">{risk}</strong>'
+                f'&nbsp;<span style="background:{rc}33;color:{rc};padding:1px 7px;border-radius:10px;'
+                f'font-size:0.72rem">{severity.upper()}</span>'
+                + (f'<br><span style="color:#ccc;font-size:0.85rem">{detail}</span>' if detail else "")
+                + '</div>',
+                unsafe_allow_html=True,
+            )
+
+    # Smart money divergence
+    divergence = result.get("smart_money_divergence", "")
+    if divergence and divergence.lower() not in ("none detected", "none", ""):
+        st.warning(f"**Smart Money vs. Retail Divergence:** {divergence}")
+
+
+# ---------------------------------------------------------------------------
 # Account loading (mirrors 7_positions.py)
 # ---------------------------------------------------------------------------
 if not is_configured():
@@ -1370,32 +1491,70 @@ for aid in account_ids:
     lbl = id_to_label.get(aid) or aid
     label_to_id[lbl] = aid
 
-selected_label = st.selectbox("Account", list(accounts.keys()))
+# ── Account selector (compact row) ────────────────────────────────────────────
+_acct_col, _title_col = st.columns([2, 5])
+with _acct_col:
+    selected_label = st.selectbox("Account", list(accounts.keys()), label_visibility="collapsed")
+with _title_col:
+    st.caption("Select account above · All sections update automatically")
 selected_account_id = label_to_id.get(selected_label, selected_label)
 
 # ---------------------------------------------------------------------------
-# Balance summary
+# KPI Dashboard Header
 # ---------------------------------------------------------------------------
 selected_balance = accounts[selected_label]
-balance_fields = [
-    "total_net_liquidation_value",
-    "total_market_value",
-    "total_cash_balance",
-    "total_unrealized_profit_loss",
-    "total_day_profit_loss",
-]
-display = {k: selected_balance.get(k) for k in balance_fields if k in selected_balance}
-if display:
-    df_bal = pd.DataFrame([display])
-    df_bal.columns = [c.replace("_", " ").title() for c in df_bal.columns]
-    st.dataframe(df_bal, use_container_width=True, hide_index=True)
-else:
-    st.json(selected_balance)
+
+def _to_float(v):
+    try:
+        return float(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+_net_liq   = _to_float(selected_balance.get("total_net_liquidation_value"))
+_day_pnl   = _to_float(selected_balance.get("total_day_profit_loss"))
+_unreal    = _to_float(selected_balance.get("total_unrealized_profit_loss"))
+_cash      = _to_float(selected_balance.get("total_cash_balance"))
+_mkt_val   = _to_float(selected_balance.get("total_market_value"))
+
+_kpi1, _kpi2, _kpi3, _kpi4, _kpi5 = st.columns(5)
+with _kpi1:
+    st.metric(
+        "Portfolio Value",
+        f"${_net_liq:,.2f}" if _net_liq is not None else "N/A",
+        help="Total net liquidation value",
+    )
+with _kpi2:
+    _day_pct = (
+        f"{_day_pnl / (_mkt_val - _day_pnl) * 100:+.2f}%"
+        if _day_pnl is not None and _mkt_val and (_mkt_val - _day_pnl) != 0
+        else None
+    )
+    st.metric(
+        "Day P&L",
+        f"${_day_pnl:+,.2f}" if _day_pnl is not None else "N/A",
+        delta=_day_pct,
+    )
+with _kpi3:
+    st.metric(
+        "Unrealized P&L",
+        f"${_unreal:+,.2f}" if _unreal is not None else "N/A",
+    )
+with _kpi4:
+    st.metric(
+        "Cash",
+        f"${_cash:,.2f}" if _cash is not None else "N/A",
+    )
+with _kpi5:
+    st.metric(
+        "Market Value",
+        f"${_mkt_val:,.2f}" if _mkt_val is not None else "N/A",
+    )
+
+# Placeholder: positions count updated after fetch below
 
 # ---------------------------------------------------------------------------
-# Positions
+# Positions fetch (needed for all sections)
 # ---------------------------------------------------------------------------
-st.subheader("Positions")
 
 with st.spinner("Fetching positions…"):
     positions_result = _cached_positions(selected_account_id)
@@ -1448,129 +1607,95 @@ def _color_pnl(val):
         pass
     return ""
 
-_pos_tab, _mpt_tab = st.tabs(["Positions Table", "MPT Analysis"])
+# ---------------------------------------------------------------------------
+# Compact summary helpers for Dashboard tab
+# ---------------------------------------------------------------------------
 
-with _pos_tab:
-    # Only color P&L and rate columns — not neutral positives like market value or quantity
+def _render_positions_table_styled(df: pd.DataFrame) -> None:
     _pnl_keywords = ("profit", "loss", "return", "change", "rate")
-    _pnl_cols = [c for c in df_pos.columns if any(kw in c.lower() for kw in _pnl_keywords)]
-    styled = df_pos.style
+    _pnl_cols = [c for c in df.columns if any(kw in c.lower() for kw in _pnl_keywords)]
+    styled = df.style
     if _pnl_cols:
         styled = styled.map(_color_pnl, subset=_pnl_cols)
-    _row_height = 35
-    _header_height = 38
     st.dataframe(styled, use_container_width=True, hide_index=True,
-                 height=_header_height + _row_height * len(df_pos))
+                 height=38 + 35 * len(df))
 
-with _mpt_tab:
-    _render_mpt_analysis(positions_result)
+
+def _render_news_compact_summary() -> None:
+    if not st.session_state.get("news_results"):
+        st.caption("No news analyzed yet — use the 📰 News tab to run analysis.")
+        return
+    rows = []
+    for _t, _e in st.session_state.news_results.items():
+        _r = _e.get("result", {})
+        rows.append({
+            "Ticker":    _t,
+            "Sentiment": _r.get("sentiment_label", "?").upper(),
+            "Score":     round(_r.get("sentiment_score", 0.0), 2),
+            "Impact":    f"{_r.get('impact_level', 0)}/10",
+            "Cache":     "✓" if _e.get("from_db") else "✗",
+        })
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True,
+                 height=38 + 35 * len(rows))
+
+
+def _render_options_compact_summary() -> None:
+    results = st.session_state.get("options_results", {})
+    rows = []
+    for _sk, _e in results.items():
+        if "_error" in _e:
+            continue
+        _parts = _sk.split("|")
+        rows.append({
+            "Ticker":     _parts[0] if _parts else _sk,
+            "Expiry":     _parts[1] if len(_parts) > 1 else "",
+            "Bias":       _e.get("directional_bias", "neutral").upper(),
+            "Confidence": _e.get("confidence", "?").capitalize(),
+            "P/C OI":     f"{_e.get('metrics', {}).get('pcr_oi', 0):.3f}"
+                          if _e.get("metrics", {}).get("pcr_oi") is not None else "—",
+        })
+    if rows:
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True,
+                     height=38 + 35 * len(rows))
+    else:
+        st.caption("No options analyzed yet — use the ⚡ Options tab to run analysis.")
+
+
+def _render_reddit_compact_summary() -> None:
+    results = st.session_state.get("wsb_results", {})
+    rows = []
+    for _t, _e in results.items():
+        _sr = _e.get("summary_row") or {}
+        rows.append({
+            "Ticker":    _t,
+            "Sentiment": _sr.get("sentiment_label", "?").upper(),
+            "Score":     round(_sr.get("sentiment_score", 0.0), 2),
+            "Cache":     "✓" if _e.get("from_cache") else "✗",
+        })
+    if rows:
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True,
+                     height=38 + 35 * len(rows))
+    else:
+        st.caption("No Reddit sentiment analyzed yet — use the 📡 Reddit tab.")
+
 
 # ---------------------------------------------------------------------------
-# Analyze Everything
+# Session state init
 # ---------------------------------------------------------------------------
-st.markdown("---")
-if st.button("⚡ Analyze Everything", use_container_width=True, key="analyze_everything_btn"):
-    st.session_state.analyze_all_news = True
-    st.session_state.analyze_all_options = True
-    st.session_state.analyze_all_hf = True
-    st.session_state.analyze_all_mpt = True
-    st.session_state.analyze_all_reddit = True
-    st.rerun()
+if "news_results"    not in st.session_state: st.session_state.news_results    = {}
+if "options_results" not in st.session_state: st.session_state.options_results = {}
+if "wsb_results"     not in st.session_state: st.session_state.wsb_results     = {}
+if "hf_analysis"     not in st.session_state: st.session_state.hf_analysis     = None
+if "mpt_analysis"    not in st.session_state: st.session_state.mpt_analysis    = None
+if "ai_insights"     not in st.session_state: st.session_state.ai_insights     = None
 
 if not tickers:
-    st.warning("Could not extract ticker symbols from position data — news analysis unavailable.")
+    st.warning("Could not extract ticker symbols from position data.")
     st.stop()
 
 # ---------------------------------------------------------------------------
-# News Analysis
+# Options Analysis — constants and functions (module-level for @st.fragment)
 # ---------------------------------------------------------------------------
-st.markdown("---")
-st.subheader("News Analysis")
-
-if "news_results" not in st.session_state:
-    st.session_state.news_results = {}
-
-col_a, col_b = st.columns([3, 1])
-with col_a:
-    selected_ticker = st.selectbox("Analyze news for", ["— Select a stock —"] + tickers)
-with col_b:
-    analyze_all = st.button("Analyze All Positions", use_container_width=True)
-
-# Single ticker analysis
-if selected_ticker and selected_ticker != "— Select a stock —":
-    if st.button(f"Run News Analysis for {selected_ticker}") or selected_ticker in st.session_state.news_results:
-        with st.spinner(f"Fetching and analyzing news for {selected_ticker}…"):
-            cached = _load_or_analyze(selected_ticker)
-
-        article_count = cached["article_count"]
-        sector = cached["sector"]
-        is_fallback = cached["is_fallback"]
-        from_db = cached.get("from_db", False)
-        analyzed_at = cached.get("analyzed_at", "")
-
-        if from_db and analyzed_at:
-            st.info(f"Cached analysis from {analyzed_at} UTC — no new articles detected.")
-        else:
-            st.success(f"Freshly analyzed at {analyzed_at} UTC.")
-        note = f"{article_count} articles found"
-        if is_fallback and sector:
-            note += f" — supplemented with {sector} sector news"
-        st.caption(note)
-        _render_analysis(selected_ticker, cached["result"])
-
-# Analyze all positions
-_trigger_all_news = analyze_all or st.session_state.pop("analyze_all_news", False)
-if _trigger_all_news:
-    progress = st.progress(0, text="Starting analysis…")
-    completed = 0
-
-    def _analyze_ticker(ticker):
-        return ticker, _load_or_analyze(ticker)
-
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        futures = {executor.submit(_analyze_ticker, t): t for t in tickers}
-        for future in as_completed(futures):
-            ticker, entry = future.result()
-            st.session_state.news_results[ticker] = entry
-            completed += 1
-            label = "Gemini" if not entry.get("from_db") else "cache"
-            progress.progress(completed / len(tickers), text=f"Done ({label}): {ticker}")
-    progress.empty()
-
-# Display all cached results
-if st.session_state.news_results:
-    st.markdown("### Analysis Results")
-    for ticker, cached in st.session_state.news_results.items():
-        sentiment_label = cached["result"]["sentiment_label"].upper()
-        sentiment_score = cached["result"]["sentiment_score"]
-        from_db = cached.get("from_db", False)
-        analyzed_at = cached.get("analyzed_at", "")
-        cache_tag = " [cached]" if from_db else ""
-        with st.expander(
-            f"**{ticker}** — {sentiment_label} ({sentiment_score:+.2f}){cache_tag}",
-            expanded=False,
-        ):
-            if from_db and analyzed_at:
-                st.info(f"Cached from {analyzed_at} UTC — no new articles detected.")
-            elif analyzed_at:
-                st.success(f"Freshly analyzed at {analyzed_at} UTC.")
-            note = f"{cached['article_count']} articles"
-            if cached["is_fallback"] and cached["sector"]:
-                note += f" · {cached['sector']} sector fallback"
-            st.caption(note)
-            _render_analysis(ticker, cached["result"])
-
-    if st.button("Clear All Results"):
-        st.session_state.news_results = {}
-        st.rerun()
-
-_render_market_pulse_section()
-
-# ---------------------------------------------------------------------------
-# Options Analysis
-# ---------------------------------------------------------------------------
-st.markdown("---")
-st.subheader("Options Analysis")
 
 _RISK_FREE_RATE = 0.045
 _N_CONTRACTS = 10
@@ -1964,14 +2089,310 @@ def _options_analysis_ui(tickers: list[str]) -> None:
             st.rerun()
 
 
-_options_analysis_ui(tickers)
+# ---------------------------------------------------------------------------
+# Main tab navigation — wire everything together
+# ---------------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
-# Reddit Sentiment
-# ---------------------------------------------------------------------------
-st.markdown("---")
-st.subheader("📡 Reddit Sentiment")
-st.caption("WSB and general finance subreddit crowd sentiment for each position, powered by Gemini AI.")
+_tab_dash, _tab_news, _tab_opt, _tab_reddit, _tab_smart, _tab_pulse = st.tabs([
+    "📊 Dashboard",
+    "📰 News",
+    "⚡ Options & MPT",
+    "📡 Reddit",
+    "🏦 Smart Money",
+    "🌍 Market Pulse",
+])
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB 1: DASHBOARD — Compact overview + AI Insights
+# ═══════════════════════════════════════════════════════════════════════════════
+with _tab_dash:
+
+    # ── Action buttons row ────────────────────────────────────────────────────
+    _bc1, _bc2, _bc3 = st.columns([2, 2, 4])
+    with _bc1:
+        if st.button("⚡ Analyze Everything", use_container_width=True, key="analyze_everything_btn"):
+            st.session_state.analyze_all_news    = True
+            st.session_state.analyze_all_options = True
+            st.session_state.analyze_all_hf      = True
+            st.session_state.analyze_all_mpt     = True
+            st.session_state.analyze_all_reddit  = True
+            st.rerun()
+    with _bc2:
+        _run_insights = st.button("🤖 Run AI Insights", use_container_width=True, key="ai_insights_btn")
+    with _bc3:
+        st.caption(
+            "⚡ **Analyze Everything** runs all 5 agents in parallel · "
+            "🤖 **AI Insights** synthesizes all results with Gemini 2.5 Pro"
+        )
+
+    # ── AI Insights section ───────────────────────────────────────────────────
+    st.markdown("### 🤖 AI Insights")
+
+    if _run_insights:
+        st.session_state.ai_insights = None
+        _pd = {
+            "balance":         selected_balance,
+            "positions":       positions_result,
+            "news_results":    st.session_state.news_results,
+            "options_results": st.session_state.options_results,
+            "wsb_results":     st.session_state.wsb_results,
+            "mpt_analysis":    st.session_state.mpt_analysis,
+            "hf_analysis":     st.session_state.hf_analysis,
+        }
+        with st.spinner("Gemini 2.5 Pro synthesizing all portfolio data… (~60–120s)"):
+            _insights_result = run_portfolio_insights(_pd)
+        st.session_state.ai_insights = _insights_result
+
+    if st.session_state.ai_insights is not None:
+        _render_ai_insights(st.session_state.ai_insights)
+        if st.button("🔄 Refresh Insights", key="ai_refresh_btn"):
+            st.session_state.ai_insights = None
+            st.rerun()
+    else:
+        st.info(
+            "Click **🤖 Run AI Insights** to get Gemini 2.5 Pro's holistic analysis combining "
+            "positions, news, options flow, Reddit sentiment, hedge fund 13F data, and MPT metrics. "
+            "For best results, run **⚡ Analyze Everything** first."
+        )
+
+    st.markdown("---")
+
+    # ── 2-Column Dashboard Grid ───────────────────────────────────────────────
+    _left, _right = st.columns([3, 2])
+
+    with _left:
+        # Positions summary
+        _n_pos = len(df_pos)
+        _pos_header = f"**{_n_pos} positions**"
+        if _unreal is not None:
+            _pos_header += f" · Unrealized: ${_unreal:+,.2f}"
+        if _mkt_val is not None:
+            _pos_header += f" · MV: ${_mkt_val:,.2f}"
+        st.markdown(f"#### 📋 Positions &nbsp;<span style='color:#aaa;font-size:0.85rem'>{_pos_header}</span>",
+                    unsafe_allow_html=True)
+
+        # Top 5 by market value
+        _mv_col_name = next((c for c in df_pos.columns if "market" in c.lower() and "value" in c.lower()), None)
+        try:
+            _top5_df = df_pos.nlargest(5, _mv_col_name) if _mv_col_name else df_pos.head(5)
+        except Exception:
+            _top5_df = df_pos.head(5)
+        _render_positions_table_styled(_top5_df)
+        if _n_pos > 5:
+            st.caption(f"Top 5 of {_n_pos} by market value")
+        with st.expander(f"📋 Full Positions Table ({_n_pos} positions)", expanded=False):
+            _render_positions_table_styled(df_pos)
+
+        st.markdown("")
+
+        # News summary
+        _n_news = len(st.session_state.news_results)
+        _npos = sum(1 for e in st.session_state.news_results.values()
+                    if e.get("result", {}).get("sentiment_label") == "positive")
+        _nneg = sum(1 for e in st.session_state.news_results.values()
+                    if e.get("result", {}).get("sentiment_label") == "negative")
+        st.markdown(
+            f"#### 📰 News Sentiment &nbsp;<span style='color:#aaa;font-size:0.85rem'>"
+            f"{_n_news} analyzed · {_npos}↑ · {_nneg}↓</span>",
+            unsafe_allow_html=True,
+        )
+        _render_news_compact_summary()
+        if _n_news > 0:
+            with st.expander("📰 Full News Analysis", expanded=False):
+                for _t, _ce in st.session_state.news_results.items():
+                    _sl = _ce["result"]["sentiment_label"].upper()
+                    _ss = _ce["result"]["sentiment_score"]
+                    _fd = _ce.get("from_db", False)
+                    with st.expander(f"**{_t}** — {_sl} ({_ss:+.2f})" + (" [cached]" if _fd else ""), expanded=False):
+                        if _fd:
+                            st.info(f"Cached from {_ce.get('analyzed_at','')} UTC")
+                        _render_analysis(_t, _ce["result"])
+
+    with _right:
+        # MPT Score
+        st.markdown("#### 📊 Portfolio Analytics")
+        _mpt_ss = st.session_state.mpt_analysis
+        if _mpt_ss:
+            _mpt_r  = _mpt_ss.get("result", {})
+            _mpt_m  = _mpt_ss.get("metrics", {})
+            _mpt_ma = _mpt_r.get("mpt_analysis", {})
+            _mpt_sc = _mpt_ma.get("overall_score", "fair")
+            _mpt_rb = _mpt_ma.get("rebalancing_priority", "?")
+            _pr     = (_mpt_m.get("portfolio_return", 0) or 0) * 100
+            _pv     = (_mpt_m.get("portfolio_volatility", 0) or 0) * 100
+            _sh     = _mpt_m.get("portfolio_sharpe", 0) or 0
+            _msc    = _HEALTH_COLOR.get(_mpt_sc, "#ffd600")
+            st.markdown(
+                f'<div style="background:{_msc}22;border-left:4px solid {_msc};border-radius:6px;'
+                f'padding:8px 14px;margin-bottom:10px">'
+                f'<strong style="color:{_msc}">MPT: {_mpt_sc.upper()}</strong>'
+                f'<span style="color:#aaa;font-size:0.83rem"> · Rebalancing: {_mpt_rb}</span></div>',
+                unsafe_allow_html=True,
+            )
+            _mm1, _mm2, _mm3 = st.columns(3)
+            _mm1.metric("Return", f"{_pr:.1f}%")
+            _mm2.metric("Volatility", f"{_pv:.1f}%")
+            _mm3.metric("Sharpe", f"{_sh:.2f}")
+            _ais = _mpt_r.get("action_items", [])
+            if _ais:
+                st.caption("**Rebalancing:**")
+                for _ai in _ais[:3]:
+                    _aic = "#00c853" if any(w in (_ai.get("action","")).lower() for w in ("increase","add","buy")) else "#ff1744" if any(w in (_ai.get("action","")).lower() for w in ("reduce","sell","trim")) else "#aaa"
+                    st.markdown(f'<span style="color:{_aic};font-weight:700">{_ai.get("ticker","?")}</span>: {_ai.get("action","?")}', unsafe_allow_html=True)
+        else:
+            st.info("Run MPT Analysis via ⚡ Analyze Everything or the ⚡ Options & MPT tab.")
+
+        st.markdown("")
+
+        # Options bias
+        _n_opt = len([e for e in st.session_state.options_results.values() if "_error" not in e])
+        st.markdown(f"#### ⚡ Options Flow &nbsp;<span style='color:#aaa;font-size:0.85rem'>{_n_opt} analyzed</span>",
+                    unsafe_allow_html=True)
+        _render_options_compact_summary()
+
+        st.markdown("")
+
+        # Reddit sentiment
+        _nwsb = len(st.session_state.wsb_results)
+        _wpos = sum(1 for e in st.session_state.wsb_results.values() if (e.get("summary_row") or {}).get("sentiment_label") == "positive")
+        _wneg = sum(1 for e in st.session_state.wsb_results.values() if (e.get("summary_row") or {}).get("sentiment_label") == "negative")
+        st.markdown(f"#### 📡 Reddit &nbsp;<span style='color:#aaa;font-size:0.85rem'>{_nwsb} analyzed · {_wpos}↑ · {_wneg}↓</span>",
+                    unsafe_allow_html=True)
+        _render_reddit_compact_summary()
+
+        st.markdown("")
+
+        # Smart Money stance
+        st.markdown("#### 🏦 Smart Money")
+        _hf_ss = st.session_state.hf_analysis
+        if _hf_ss and "_error" not in _hf_ss:
+            _hfps  = _hf_ss.get("portfolio_signal", {})
+            _hfst  = _hfps.get("overall_stance", "mixed").upper()
+            _hfc   = _hfps.get("confidence", "?")
+            _hfcol = {"BULLISH": "#00c853", "BEARISH": "#ff1744", "MIXED": "#ffd600", "DEFENSIVE": "#ff6d00"}.get(_hfst, "#ffd600")
+            _hfth  = _hfps.get("cross_ticker_themes", [])
+            st.markdown(
+                f'<div style="background:{_hfcol}22;border-left:4px solid {_hfcol};border-radius:6px;'
+                f'padding:8px 14px;margin-bottom:6px">'
+                f'<strong style="color:{_hfcol}">13F: {_hfst}</strong>'
+                f'<span style="color:#aaa;font-size:0.83rem"> · Conf: {_hfc}</span></div>',
+                unsafe_allow_html=True,
+            )
+            if _hfth:
+                st.caption(" · ".join(_hfth[:3]))
+        else:
+            st.info("Run Hedge Fund Analysis in the 🏦 Smart Money tab.")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB 2: NEWS — Full news analysis
+# ═══════════════════════════════════════════════════════════════════════════════
+with _tab_news:
+    st.subheader("📰 News Analysis")
+    st.caption("Per-ticker and sector news analyzed by Gemini Flash · Cached until new articles appear")
+
+    _na_col_a, _na_col_b = st.columns([3, 1])
+    with _na_col_a:
+        selected_ticker = st.selectbox("Analyze news for", ["— Select a stock —"] + tickers,
+                                       key="news_ticker_select")
+    with _na_col_b:
+        analyze_all = st.button("Analyze All Positions", use_container_width=True, key="news_analyze_all_btn")
+
+    if selected_ticker and selected_ticker != "— Select a stock —":
+        if (st.button(f"▶ Run News Analysis for {selected_ticker}", key="news_run_single_btn")
+                or selected_ticker in st.session_state.news_results):
+            with st.spinner(f"Fetching and analyzing news for {selected_ticker}…"):
+                _n_cached = _load_or_analyze(selected_ticker)
+            _n_ac   = _n_cached["article_count"]
+            _n_sec  = _n_cached["sector"]
+            _n_fb   = _n_cached["is_fallback"]
+            _n_fdb  = _n_cached.get("from_db", False)
+            _n_at   = _n_cached.get("analyzed_at", "")
+            if _n_fdb and _n_at:
+                st.info(f"Cached analysis from {_n_at} UTC — no new articles detected.")
+            else:
+                st.success(f"Freshly analyzed at {_n_at} UTC.")
+            _n_note = f"{_n_ac} articles found"
+            if _n_fb and _n_sec:
+                _n_note += f" — supplemented with {_n_sec} sector news"
+            st.caption(_n_note)
+            _render_analysis(selected_ticker, _n_cached["result"])
+
+    _trigger_all_news = analyze_all or st.session_state.pop("analyze_all_news", False)
+    if _trigger_all_news:
+        _n_progress = st.progress(0, text="Starting news analysis…")
+        _n_done = 0
+
+        def _analyze_ticker(ticker):
+            return ticker, _load_or_analyze(ticker)
+
+        with ThreadPoolExecutor(max_workers=3) as _n_exec:
+            _n_futures = {_n_exec.submit(_analyze_ticker, t): t for t in tickers}
+            for _n_fut in as_completed(_n_futures):
+                _nt, _ne = _n_fut.result()
+                st.session_state.news_results[_nt] = _ne
+                _n_done += 1
+                _n_lbl = "Gemini" if not _ne.get("from_db") else "cache"
+                _n_progress.progress(_n_done / len(tickers), text=f"Done ({_n_lbl}): {_nt}")
+        _n_progress.empty()
+
+    if st.session_state.news_results:
+        st.markdown("### Results")
+        for _nt, _nc in st.session_state.news_results.items():
+            _nsl  = _nc["result"]["sentiment_label"].upper()
+            _nss  = _nc["result"]["sentiment_score"]
+            _nfdb = _nc.get("from_db", False)
+            _nat  = _nc.get("analyzed_at", "")
+            _nct  = " [cached]" if _nfdb else ""
+            with st.expander(f"**{_nt}** — {_nsl} ({_nss:+.2f}){_nct}", expanded=False):
+                if _nfdb and _nat:
+                    st.info(f"Cached from {_nat} UTC — no new articles detected.")
+                elif _nat:
+                    st.success(f"Freshly analyzed at {_nat} UTC.")
+                _nn = f"{_nc['article_count']} articles"
+                if _nc["is_fallback"] and _nc["sector"]:
+                    _nn += f" · {_nc['sector']} sector fallback"
+                st.caption(_nn)
+                _render_analysis(_nt, _nc["result"])
+
+        if st.button("Clear All News Results", key="news_clear_btn"):
+            st.session_state.news_results = {}
+            st.rerun()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB 3: OPTIONS & MPT — Full options analysis + MPT
+# ═══════════════════════════════════════════════════════════════════════════════
+with _tab_opt:
+    with st.expander("📊 Modern Portfolio Theory Analysis", expanded=False):
+        _render_mpt_analysis(positions_result)
+    st.markdown("---")
+    st.subheader("⚡ Options Analysis")
+    st.caption("Full option chain with Greeks, Gemini 2.5 Pro analysis of IV, P/C ratios, max pain, and GEX")
+
+# Options functions are defined below at module level and called via _options_analysis_ui(tickers)
+# which Streamlit will wire up to the correct tab context via the @st.fragment decorator.
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Options @st.fragment (must be called at module level, outside with-tab block)
+# Call happens after TAB 4 and TAB 5 definitions to keep all fragments together.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+with _tab_reddit:
+    st.subheader("📡 Reddit Sentiment")
+    st.caption("WSB and general finance subreddit crowd sentiment, powered by Gemini Flash")
+
+with _tab_smart:
+    st.subheader("🏦 Smart Money Analysis")
+    st.caption("13F institutional positioning cross-referenced with your portfolio, analyzed by Gemini 2.5 Pro")
+    _render_hedge_fund_overlap(positions_result)
+
+with _tab_pulse:
+    _render_market_pulse_section()
+
+# Options analysis UI (fragment — renders inside tab_opt context)
+with _tab_opt:
+    _options_analysis_ui(tickers)
 
 
 @st.fragment
@@ -2065,10 +2486,6 @@ def _reddit_sentiment_ui(tickers: list[str]) -> None:
             st.rerun()
 
 
-_reddit_sentiment_ui(tickers)
-
-# ---------------------------------------------------------------------------
-# Smart Money Analysis
-# ---------------------------------------------------------------------------
-st.markdown("---")
-_render_hedge_fund_overlap(positions_result)
+# Reddit sentiment UI — call inside reddit tab (function now defined above)
+with _tab_reddit:
+    _reddit_sentiment_ui(tickers)
