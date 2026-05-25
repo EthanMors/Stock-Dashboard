@@ -24,6 +24,7 @@ _PAGES = [
     {"icon": "⛓️", "label": "Option Chains", "path": "pages/6_option_chains.py"},
     {"icon": "💼", "label": "Positions",   "path": "pages/7_positions.py"},
     {"icon": "📡", "label": "WSB Reddit",  "path": "pages/8_reddit.py"},
+    {"icon": "📈", "label": "Technical Analysis", "path": "pages/10_technical_analysis.py"},
 ]
 
 _DEMO_TICKERS = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN"]
