@@ -60,3 +60,44 @@ def get_earnings_history(ticker: str) -> pd.DataFrame:
         return df if df is not None and not df.empty else pd.DataFrame()
     except Exception:
         return pd.DataFrame()
+
+
+@st.cache_data(ttl=900)
+def get_batch_history(tickers: tuple, period: str = "1y") -> pd.DataFrame:
+    """Fetch daily adjusted close prices for multiple tickers in a single yf.download call.
+
+    Parameters
+    ----------
+    tickers : tuple of uppercase ticker strings (use tuple so it is hashable for @st.cache_data).
+              Should include any benchmark ticker (e.g. "SPY") already appended by the caller.
+    period  : yfinance period string — "1mo", "3mo", "6mo", or "1y".
+
+    Returns
+    -------
+    DataFrame with one column per ticker (column name = ticker string), rows = trading dates.
+    Returns an empty DataFrame on any error.
+    Drops any ticker column that is entirely NaN.
+    """
+    try:
+        tickers_list = list(tickers)
+        if not tickers_list:
+            return pd.DataFrame()
+        raw = yf.download(
+            tickers_list,
+            period=period,
+            auto_adjust=True,
+            progress=False,
+        )
+        if raw is None or raw.empty:
+            return pd.DataFrame()
+        # yfinance returns MultiIndex columns when >1 ticker is requested
+        if isinstance(raw.columns, pd.MultiIndex):
+            close_df = raw["Close"]
+        else:
+            # Single ticker — raw columns are OHLCV; rename Close to the ticker name
+            close_df = raw[["Close"]].rename(columns={"Close": tickers_list[0]})
+        # Drop entirely-NaN columns (tickers with no data)
+        close_df = close_df.dropna(axis=1, how="all")
+        return close_df
+    except Exception:
+        return pd.DataFrame()
