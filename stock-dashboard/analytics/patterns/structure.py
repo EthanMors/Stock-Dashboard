@@ -29,11 +29,28 @@ def detect_bos_choch(
     lookback: int = 100,
     ticker: str = "",
     timeframe: str = "daily",
+    max_lag: int = 10,
 ) -> List[DetectedPattern]:
-    """Detect Break of Structure and Change of Character events at the current bar."""
+    """Detect BOS/CHoCH by scanning the most recent max_lag bars for breakouts."""
     if len(df) < 20:
         return []
 
+    # Scan each of the last max_lag bars as the "current" bar, return first hit
+    for lag in range(min(max_lag, len(df) - 20)):
+        scan_df = df.iloc[: len(df) - lag] if lag > 0 else df
+        result  = _bos_choch_at(scan_df, lookback, ticker, timeframe)
+        if result:
+            return result
+    return []
+
+
+def _bos_choch_at(
+    df: pd.DataFrame,
+    lookback: int,
+    ticker: str,
+    timeframe: str,
+) -> List[DetectedPattern]:
+    """Check whether the last bar of df is a BOS or CHoCH event."""
     patterns: List[DetectedPattern] = []
     n = min(lookback, len(df) - 1)
     window = df.iloc[-n:]

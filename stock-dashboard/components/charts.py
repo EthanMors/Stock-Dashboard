@@ -3,6 +3,8 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from components.ui import plotly_dark_layout
+
 _THEME = "plotly_dark"
 _GREEN = "#00c853"
 _RED   = "#ff1744"
@@ -15,11 +17,13 @@ def _empty_fig(message: str) -> go.Figure:
     """Return a dark-themed empty figure with a centred message."""
     fig = go.Figure()
     fig.update_layout(
-        template=_THEME,
-        annotations=[{"text": message, "xref": "paper", "yref": "paper",
-                       "x": 0.5, "y": 0.5, "showarrow": False,
-                       "font": {"size": 16, "color": "gray"}}],
-        xaxis_visible=False, yaxis_visible=False,
+        **plotly_dark_layout(
+            annotations=[{"text": message, "xref": "paper", "yref": "paper",
+                           "x": 0.5, "y": 0.5, "showarrow": False,
+                           "font": {"size": 16, "color": "#556080"}}],
+            xaxis_visible=False,
+            yaxis_visible=False,
+        )
     )
     return fig
 
@@ -50,12 +54,14 @@ def price_chart(hist_df: pd.DataFrame, ticker: str) -> go.Figure:
     _add_moving_average(fig, hist_df["Close"], 50,  _AMBER, "MA 50")
     _add_moving_average(fig, hist_df["Close"], 200, _TEAL,  "MA 200")
     fig.update_layout(
-        template=_THEME,
-        title=f"{ticker} — Price",
-        xaxis_rangeslider_visible=False,
-        xaxis_title="Date",
-        yaxis_title="Price (USD)",
-        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02},
+        **plotly_dark_layout(
+            title=f"{ticker} — Price",
+            xaxis_rangeslider_visible=False,
+            xaxis_title="Date",
+            yaxis_title="Price (USD)",
+            legend={"orientation": "h", "yanchor": "bottom", "y": 1.02,
+                    "bgcolor": "rgba(0,0,0,0)", "font": {"size": 11}},
+        )
     )
     return fig
 
@@ -84,9 +90,11 @@ def revenue_chart(financials: dict, ticker: str) -> go.Figure:
         marker_color=_BLUE, name="Revenue",
     ))
     fig.update_layout(
-        template=_THEME,
-        title=f"{ticker} — Annual Revenue",
-        xaxis_title="Year", yaxis_title="Revenue (USD B)",
+        **plotly_dark_layout(
+            title=f"{ticker} — Annual Revenue",
+            xaxis_title="Year",
+            yaxis_title="Revenue (USD B)",
+        )
     )
     return fig
 
@@ -125,10 +133,13 @@ def margin_chart(financials: dict, ticker: str) -> go.Figure:
                 line={"color": color, "width": 2},
             ))
     fig.update_layout(
-        template=_THEME,
-        title=f"{ticker} — Margins %",
-        xaxis_title="Year", yaxis_title="Margin (%)",
-        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02},
+        **plotly_dark_layout(
+            title=f"{ticker} — Margins %",
+            xaxis_title="Year",
+            yaxis_title="Margin (%)",
+            legend={"orientation": "h", "yanchor": "bottom", "y": 1.02,
+                    "bgcolor": "rgba(0,0,0,0)", "font": {"size": 11}},
+        )
     )
     return fig
 
@@ -145,9 +156,11 @@ def fcf_chart(financials: dict, ticker: str) -> go.Figure:
         marker_color=colors, name="FCF",
     ))
     fig.update_layout(
-        template=_THEME,
-        title=f"{ticker} — Free Cash Flow",
-        xaxis_title="Year", yaxis_title="FCF (USD B)",
+        **plotly_dark_layout(
+            title=f"{ticker} — Free Cash Flow",
+            xaxis_title="Year",
+            yaxis_title="FCF (USD B)",
+        )
     )
     return fig
 
@@ -178,10 +191,13 @@ def earnings_chart(earnings_df: pd.DataFrame, ticker: str) -> go.Figure:
             marker_color=_GREEN,
         ))
     fig.update_layout(
-        template=_THEME,
-        title=f"{ticker} — EPS Actual vs. Estimate",
-        barmode="group",
-        xaxis_title="Quarter", yaxis_title="EPS (USD)",
-        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02},
+        **plotly_dark_layout(
+            title=f"{ticker} — EPS Actual vs. Estimate",
+            barmode="group",
+            xaxis_title="Quarter",
+            yaxis_title="EPS (USD)",
+            legend={"orientation": "h", "yanchor": "bottom", "y": 1.02,
+                    "bgcolor": "rgba(0,0,0,0)", "font": {"size": 11}},
+        )
     )
     return fig

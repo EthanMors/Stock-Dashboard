@@ -4,6 +4,7 @@ from typing import Optional
 import streamlit as st
 
 from components.gemini_usage_bar import render_gemini_usage_bar
+from components.ui import inject_global_css, page_header
 from data.fetcher import get_stock_info
 
 st.set_page_config(
@@ -14,6 +15,7 @@ st.set_page_config(
 )
 
 render_gemini_usage_bar()
+inject_global_css()
 
 _PAGES = [
     {"icon": "📊", "label": "Metrics",     "path": "pages/1_metrics.py"},
@@ -22,9 +24,11 @@ _PAGES = [
     {"icon": "📰", "label": "News",        "path": "pages/4_news.py"},
     {"icon": "🏦", "label": "Hedge Funds", "path": "pages/5_hedge_funds.py"},
     {"icon": "⛓️", "label": "Option Chains", "path": "pages/6_option_chains.py"},
-    {"icon": "💼", "label": "Positions",   "path": "pages/7_positions.py"},
-    {"icon": "📡", "label": "WSB Reddit",  "path": "pages/8_reddit.py"},
+    {"icon": "💼", "label": "Positions",     "path": "pages/7_positions.py"},
+    {"icon": "🌐", "label": "Social",        "path": "pages/8_social.py"},
+    {"icon": "📁", "label": "Portfolio",     "path": "pages/9_portfolio.py"},
     {"icon": "📈", "label": "Technical Analysis", "path": "pages/10_technical_analysis.py"},
+    {"icon": "🔬", "label": "Backtest",      "path": "pages/11_backtest.py"},
 ]
 
 _DEMO_TICKERS = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN"]
@@ -48,7 +52,7 @@ def _init_state() -> None:
 
 def _render_sidebar_search() -> None:
     """Render global ticker search in sidebar, persisting to session state."""
-    st.sidebar.markdown("### 🔍 Global Search")
+    st.sidebar.markdown('<p class="section-header" style="padding-left:0.25rem;">Search</p>', unsafe_allow_html=True)
     ticker = st.sidebar.text_input(
         "Ticker Symbol",
         value=st.session_state.get("active_ticker", ""),
@@ -68,10 +72,9 @@ def _render_sidebar_search() -> None:
 
 
 def _render_sidebar_nav() -> None:
-    """Render page navigation links with icons."""
-    st.sidebar.markdown("### Navigation")
+    """Render page navigation links."""
     for page in _PAGES:
-        st.sidebar.page_link(page["path"], label=f"{page['icon']} {page['label']}")
+        st.sidebar.page_link(page["path"], label=page["label"])
 
 
 def _render_sidebar_footer() -> None:
@@ -85,10 +88,15 @@ def _render_sidebar_footer() -> None:
 
 def _render_sidebar() -> None:
     """Compose all sidebar sections."""
-    st.sidebar.title("📈 Stock Dashboard")
-    st.sidebar.markdown("---")
+    st.sidebar.markdown(
+        '<div class="sidebar-brand">'
+        '<h1>Stock Dashboard</h1>'
+        '<p>Live data · AI analysis · Portfolio</p>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
     _render_sidebar_search()
-    st.sidebar.markdown("---")
+    st.sidebar.markdown('<p class="section-header" style="padding-left:0.25rem;">Navigation</p>', unsafe_allow_html=True)
     _render_sidebar_nav()
     _render_sidebar_footer()
 
@@ -132,7 +140,7 @@ def _render_quick_stats() -> None:
     wl_tickers = st.session_state.get("watchlist") or []
     tickers    = (wl_tickers[:5] if wl_tickers else _DEMO_TICKERS)
 
-    st.markdown("#### 🚀 Stocks")
+    st.markdown('<p class="section-header">Stocks</p>', unsafe_allow_html=True)
     with st.spinner("Loading stock stats…"):
         stats = [_quick_stat_data(t) for t in tickers]
 
@@ -151,7 +159,7 @@ def _render_quick_stats() -> None:
 
 def _render_indexes() -> None:
     """Render a strip of live price + daily change for major market indexes."""
-    st.markdown("#### 🌎 Major Indexes")
+    st.markdown('<p class="section-header">Major Indexes</p>', unsafe_allow_html=True)
     with st.spinner("Loading index stats…"):
         stats = [_quick_stat_data(t) for t in _INDEX_TICKERS]
 
@@ -179,62 +187,48 @@ def _render_indexes() -> None:
 
 def _render_landing() -> None:
     """Render the main dashboard landing page with instructions."""
-    st.markdown("---")
-    st.subheader("Welcome")
-    st.markdown(
-        "Use the **sidebar search** to look up any ticker instantly, "
-        "or navigate to a section below."
-    )
+    st.divider()
+    st.markdown('<p class="section-header">Quick Access</p>', unsafe_allow_html=True)
 
     col1, col2, col3, col4, col5 = st.columns(5)
 
-    with col1:
-        st.markdown("### 📊 Metrics")
-        st.markdown(
-            "Deep-dive valuation, profitability, growth, and balance sheet "
-            "metrics for any ticker. Includes candlestick, revenue, margin, "
-            "FCF, and earnings charts."
-        )
-        st.page_link("pages/1_metrics.py", label="Open Metrics →")
+    _cards = [
+        (col1, "Metrics",
+         "Deep-dive valuation, profitability, growth, and balance sheet metrics "
+         "with candlestick, revenue, margin, FCF, and earnings charts.",
+         "pages/1_metrics.py", "Open Metrics"),
+        (col2, "Thesis Tracker",
+         "Write and store investment theses with conviction level, price targets, "
+         "catalysts, and bear cases. Tracks metrics at time of writing vs. today.",
+         "pages/2_thesis.py", "Open Thesis Tracker"),
+        (col3, "Watchlist",
+         "Monitor tickers with live prices, P/E, gross margin, 52-week range, "
+         "and alert prices. One-click to analyze any ticker.",
+         "pages/3_watchlist.py", "Open Watchlist"),
+        (col4, "News",
+         "Latest ticker news via Massive.com with sentiment analysis. "
+         "Paywalled sources are automatically skipped.",
+         "pages/4_news.py", "Open News"),
+        (col5, "Hedge Funds",
+         "Concentrated hedge fund portfolios from SEC 13F filings. "
+         "Top, bottom, and a daily-rotating pick from funds with fewer than 15 positions.",
+         "pages/5_hedge_funds.py", "Open Hedge Funds"),
+    ]
 
-    with col2:
-        st.markdown("### 📝 Thesis Tracker")
-        st.markdown(
-            "Write and store investment theses with conviction level, "
-            "price targets, catalysts, and bear cases. Tracks metrics at "
-            "time of writing vs. today."
-        )
-        st.page_link("pages/2_thesis.py", label="Open Thesis Tracker →")
+    for col, title, desc, path, link_label in _cards:
+        with col:
+            st.markdown(
+                f'<div class="feature-card">'
+                f'<h3>{title}</h3>'
+                f'<p>{desc}</p>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+            st.page_link(path, label=f"{link_label} →")
 
-    with col3:
-        st.markdown("### 👁️ Watchlist")
-        st.markdown(
-            "Monitor a list of tickers with live prices, P/E, gross margin, "
-            "52-week range, and alert prices. One-click to analyze any ticker."
-        )
-        st.page_link("pages/3_watchlist.py", label="Open Watchlist →")
-
-    with col4:
-        st.markdown("### 📰 News")
-        st.markdown(
-            "Latest news for any ticker via Massive.com, with sentiment analysis. "
-            "Paywalled sources are automatically skipped. Click any article "
-            "to scrape the full text."
-        )
-        st.page_link("pages/4_news.py", label="Open News →")
-
-    with col5:
-        st.markdown("### 🏦 Hedge Funds")
-        st.markdown(
-            "Concentrated hedge fund portfolios from SEC 13F filings. "
-            "Browse the top, bottom, and a daily-rotating pick from funds "
-            "with fewer than 15 reported positions."
-        )
-        st.page_link("pages/5_hedge_funds.py", label="Open Hedge Funds →")
-
-    st.markdown("---")
+    st.divider()
     st.caption(
-        "Data provided by [Yahoo Finance](https://finance.yahoo.com) via yfinance. "
+        "Data provided by Yahoo Finance via yfinance. "
         "Not financial advice. All data cached for 1 hour."
     )
 
@@ -248,13 +242,11 @@ def main() -> None:
     _init_state()
     _render_sidebar()
 
-    st.title("📈 Stock Dashboard")
-    st.markdown("##### Live market data · Investment thesis tracker · Watchlist")
-    st.markdown("---")
+    page_header("Stock Dashboard", "Live market data · Investment thesis tracker · Watchlist")
 
-    st.subheader("Market Snapshot")
+    st.markdown('<p class="section-header">Market Snapshot</p>', unsafe_allow_html=True)
     _render_indexes()
-    st.markdown("---")
+    st.divider()
     _render_quick_stats()
 
     _render_landing()

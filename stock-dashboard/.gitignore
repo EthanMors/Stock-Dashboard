@@ -8,3 +8,7 @@ __pycache__/
 .streamlit/secrets.toml
 webull_credentials.json
 webull_token_info.json
+conf/token.txt
+webull_trade_sdk.log*
+*.tmp.*
+data/gemini_usage.json
