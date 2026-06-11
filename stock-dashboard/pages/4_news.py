@@ -10,6 +10,9 @@ from data import macro_news_fetcher, macro_news_analyzer, macro_news_cache
 st.set_page_config(page_title="News", layout="wide")
 
 render_gemini_usage_bar()
+from components.ui import inject_global_css, page_header, render_sidebar_nav
+inject_global_css()
+render_sidebar_nav()
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +192,7 @@ def _render_macro_card(analysis: dict, idx: int) -> None:
 def _render_stock_news_tab() -> None:
     """Render the Stock News tab (existing ticker-specific flow)."""
     _render_sidebar()
-    st.header("📈 Stock News")
+    page_header("Stock News", "Latest news for any ticker via Massive.com, with sentiment analysis.")
 
     from data.news_fetcher import _API_KEY
     if not _API_KEY or _API_KEY == "your_api_key_here":
@@ -232,7 +235,7 @@ def _render_stock_news_tab() -> None:
 
 def _render_market_pulse_tab() -> None:
     """Render the Market Pulse tab (macro news)."""
-    st.header("🌍 Market Pulse")
+    page_header("Market Pulse", "Macro news analysis — monetary policy, geopolitical events, and sector moves.")
 
     # Build category options from _CATEGORY_DISPLAY and _ETF_PROXIES
     all_categories = sorted(set(list(_CATEGORY_DISPLAY.keys())))
@@ -314,7 +317,7 @@ def _render_market_pulse_tab() -> None:
 def main() -> None:
     _render_sidebar()
 
-    tab1, tab2 = st.tabs(["📈 Stock News", "🌍 Market Pulse"])
+    tab1, tab2 = st.tabs(["Stock News", "Market Pulse"])
 
     with tab1:
         _render_stock_news_tab()

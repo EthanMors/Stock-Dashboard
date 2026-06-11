@@ -1,11 +1,13 @@
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 import yfinance as yf
 from datetime import datetime
 from scipy.stats import norm
 
 from components.gemini_usage_bar import render_gemini_usage_bar
+from components.ui import inject_global_css, page_header, plotly_dark_layout, render_sidebar_nav
 from data.options_agent import run_options_analysis
 
 RISK_FREE_RATE = 0.045
@@ -92,6 +94,128 @@ def build_display_df(
     return pd.DataFrame(rows)
 
 
+# ── Option curves ─────────────────────────────────────────────────────────────
+
+_GREEK_COLORS = {
+    "delta": ("#4fc3f7", "rgba(79,195,247,0.1)"),
+    "gamma": ("#81c784", "rgba(129,199,132,0.1)"),
+    "theta": ("#ef5350", "rgba(239,83,80,0.1)"),
+    "vega":  ("#ffb74d", "rgba(255,183,77,0.1)"),
+}
+_GREEK_LABELS = {
+    "delta": "Delta",
+    "gamma": "Gamma",
+    "theta": "Theta ($/day)",
+    "vega":  "Vega (per 1% IV)",
+}
+
+
+def _render_option_curves(
+    calls_raw: pd.DataFrame,
+    puts_raw: pd.DataFrame,
+    current_price: float,
+    expiry: str,
+    opt_type: str,
+) -> None:
+    st.subheader("Option Curves")
+
+    # ── IV Smile ──────────────────────────────────────────────────────────────
+    def _iv_series(df: pd.DataFrame) -> pd.DataFrame:
+        d = df[["strike", "impliedVolatility"]].copy()
+        d = d[d["impliedVolatility"].notna() & (d["impliedVolatility"] > 0)]
+        d["iv_pct"] = d["impliedVolatility"] * 100
+        return d.sort_values("strike")
+
+    calls_iv = _iv_series(calls_raw)
+    puts_iv  = _iv_series(puts_raw)
+
+    fig_iv = go.Figure()
+    fig_iv.add_trace(go.Scatter(
+        x=calls_iv["strike"], y=calls_iv["iv_pct"],
+        mode="lines+markers", name="Calls IV",
+        line=dict(color="#4fc3f7", width=2), marker=dict(size=4),
+    ))
+    fig_iv.add_trace(go.Scatter(
+        x=puts_iv["strike"], y=puts_iv["iv_pct"],
+        mode="lines+markers", name="Puts IV",
+        line=dict(color="#ef5350", width=2), marker=dict(size=4),
+    ))
+    fig_iv.add_vline(
+        x=current_price,
+        line=dict(color="#ffd600", width=1.5, dash="dash"),
+        annotation_text=f"Spot ${current_price:.2f}",
+        annotation_position="top right",
+        annotation_font_color="#ffd600",
+    )
+    fig_iv.update_layout(
+        **plotly_dark_layout(
+            title=f"Implied Volatility Smile — {expiry}",
+            xaxis_title="Strike Price ($)",
+            yaxis_title="Implied Volatility (%)",
+            height=400,
+            legend=dict(orientation="h", y=1.02, x=1, xanchor="right",
+                        bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
+            hovermode="x unified",
+        )
+    )
+    st.plotly_chart(fig_iv, use_container_width=True)
+
+    # ── Greeks Curve ──────────────────────────────────────────────────────────
+    expiry_dt = datetime.strptime(expiry, "%Y-%m-%d")
+    T = max((expiry_dt - datetime.today()).days / 365.0, 1.0 / 365)
+
+    raw = calls_raw if opt_type == "call" else puts_raw
+    greek_rows = []
+    for _, row in raw.iterrows():
+        iv = float(row["impliedVolatility"]) if pd.notna(row.get("impliedVolatility")) and row.get("impliedVolatility") else 0.0
+        if iv <= 0:
+            continue
+        strike = float(row["strike"])
+        g = bs_greeks(current_price, strike, T, RISK_FREE_RATE, iv, opt_type)
+        greek_rows.append({"Strike": strike, **g})
+
+    if not greek_rows:
+        st.caption("Not enough IV data to plot Greeks curves.")
+        return
+
+    gdf = pd.DataFrame(greek_rows).sort_values("Strike")
+
+    selected_greek = st.selectbox(
+        "Greek",
+        list(_GREEK_COLORS.keys()),
+        format_func=lambda k: _GREEK_LABELS[k],
+        key="greek_curve_select",
+    )
+
+    line_color, fill_color = _GREEK_COLORS[selected_greek]
+    label = _GREEK_LABELS[selected_greek]
+
+    fig_g = go.Figure()
+    fig_g.add_trace(go.Scatter(
+        x=gdf["Strike"], y=gdf[selected_greek],
+        mode="lines+markers", name=label,
+        line=dict(color=line_color, width=2), marker=dict(size=4),
+        fill="tozeroy", fillcolor=fill_color,
+    ))
+    fig_g.add_vline(
+        x=current_price,
+        line=dict(color="#ffd600", width=1.5, dash="dash"),
+        annotation_text=f"Spot ${current_price:.2f}",
+        annotation_position="top right",
+        annotation_font_color="#ffd600",
+    )
+    fig_g.update_layout(
+        **plotly_dark_layout(
+            title=f"{label} vs Strike — {opt_type.capitalize()}s expiring {expiry}",
+            xaxis_title="Strike Price ($)",
+            yaxis_title=label,
+            height=400,
+            hovermode="x unified",
+        )
+    )
+    st.plotly_chart(fig_g, use_container_width=True)
+
+
 # ── Cached data fetchers ──────────────────────────────────────────────────────
 
 @st.cache_data(ttl=60)
@@ -115,8 +239,10 @@ def fetch_chain(sym: str, exp: str):
 st.set_page_config(page_title="Option Chain Viewer", layout="wide")
 
 render_gemini_usage_bar()
+inject_global_css()
+render_sidebar_nav()
 
-st.title("Option Chain Viewer")
+page_header("Option Chain Viewer", "Live options chain with Black-Scholes Greeks, IV smile, and AI analysis.")
 
 default_ticker = st.session_state.get("active_ticker", "AAPL") or "AAPL"
 
@@ -194,6 +320,9 @@ st.dataframe(
         "Rho":       st.column_config.NumberColumn("Rho",       format="%.4f"),
     },
 )
+
+st.divider()
+_render_option_curves(calls_df, puts_df, current_price, expiry, opt_type)
 
 # ── Gemini AI Analysis ────────────────────────────────────────────────────────
 

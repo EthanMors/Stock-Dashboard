@@ -18,6 +18,9 @@ from data.calculator import (
 st.set_page_config(page_title="Thesis Tracker", layout="wide")
 
 render_gemini_usage_bar()
+from components.ui import inject_global_css, page_header, render_sidebar_nav
+inject_global_css()
+render_sidebar_nav()
 
 _CONVICTION_COLOR = {"High": "#00c853", "Medium": "#ffd600", "Low": "#ff6d00"}
 _STATUS_OPTIONS = ["All", "Active", "Closed", "Watching"]
@@ -251,7 +254,7 @@ def _render_thesis_actions(theses: list[dict]) -> None:
 
 def main() -> None:
     """Entry point for the Thesis Tracker page."""
-    st.title("Thesis Tracker")
+    page_header("Thesis Tracker", "Write, track, and compare investment theses against live metrics.")
 
     status_filter = st.selectbox("Filter by Status", _STATUS_OPTIONS, key="thesis_status_filter")
     theses = _fetch_all_theses(status_filter)

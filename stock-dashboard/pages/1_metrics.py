@@ -14,10 +14,13 @@ from components.metric_cards import render_metric_group
 from components.charts import (
     price_chart, revenue_chart, margin_chart, fcf_chart, earnings_chart,
 )
+from components.ui import inject_global_css, page_header, render_sidebar_nav
 
 st.set_page_config(page_title="Stock Metrics", layout="wide")
 
 render_gemini_usage_bar()
+inject_global_css()
+render_sidebar_nav()
 
 
 # ---------------------------------------------------------------------------
@@ -81,7 +84,7 @@ def _render_header(info: dict, ticker: str) -> None:
     )
     price_str = f"{currency} {price:.2f}" if price else "—"
 
-    st.title(name)
+    st.markdown(f'<h2 style="font-size:1.35rem;font-weight:700;color:#e8eaf0;margin:0 0 0.75rem 0;">{name}</h2>', unsafe_allow_html=True)
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Ticker",      ticker.upper())
     col2.metric("Sector",      sector)
@@ -223,7 +226,7 @@ def _render_chart_tabs(ticker: str) -> None:
 def main() -> None:
     """Entry point for the Metrics page."""
     _render_sidebar()
-    st.header("Stock Metrics")
+    page_header("Stock Metrics", "Valuation, profitability, growth, and balance sheet metrics for any ticker.")
 
     ticker_input = st.text_input(
         "Enter Ticker Symbol", value=st.session_state.get("active_ticker", ""),

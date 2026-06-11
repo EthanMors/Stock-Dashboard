@@ -1,13 +1,16 @@
 import streamlit as st
 import pandas as pd
 from components.gemini_usage_bar import render_gemini_usage_bar
+from components.ui import inject_global_css, page_header, render_sidebar_nav
 from data.webull_positions import is_configured, get_account_list, get_balance, get_env_account_ids, get_positions
 
 st.set_page_config(page_title="Portfolio Positions", layout="wide")
 
 render_gemini_usage_bar()
+inject_global_css()
+render_sidebar_nav()
 
-st.title("Portfolio Positions")
+page_header("Portfolio Positions", "Live account balances and open positions from Webull.")
 
 if not is_configured():
     st.error("Webull API credentials not configured.")
@@ -83,7 +86,7 @@ else:
     st.info("No balance fields available for this account.")
     st.json(selected_balance)
 
-st.subheader("Positions")
+st.markdown('<p class="section-header">Positions</p>', unsafe_allow_html=True)
 with st.spinner("Fetching positions…"):
     positions_result = get_positions(selected_account_id)
 

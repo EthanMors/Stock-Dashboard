@@ -12,6 +12,9 @@ from data.calculator import calc_pe_ratio, calc_gross_margin
 st.set_page_config(page_title="Watchlist", layout="wide")
 
 render_gemini_usage_bar()
+from components.ui import inject_global_css, page_header, render_sidebar_nav
+inject_global_css()
+render_sidebar_nav()
 
 _ALERT_THRESHOLD = 0.05  # 5% from alert price triggers highlight
 
@@ -220,7 +223,7 @@ def _render_row_actions(rows_db: list[dict]) -> None:
 
 def main() -> None:
     """Entry point for the Watchlist page."""
-    st.title("Watchlist")
+    page_header("Watchlist", "Monitor tickers with live prices, key metrics, and price alerts.")
     _render_add_form()
     st.markdown("---")
 

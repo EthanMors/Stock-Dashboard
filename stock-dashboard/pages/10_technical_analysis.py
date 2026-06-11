@@ -9,11 +9,14 @@ from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 
 from components.gemini_usage_bar import render_gemini_usage_bar
+from components.ui import inject_global_css, page_header, render_sidebar_nav
 from analytics.patterns import DetectedPattern, PatternDetectionEngine
 from data.gemini_tracker import record_call
 
 st.set_page_config(page_title="Technical Analysis", page_icon="📈", layout="wide")
 render_gemini_usage_bar()
+inject_global_css()
+render_sidebar_nav()
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -906,9 +909,7 @@ def _init_state() -> None:
 def main() -> None:
     _init_state()
 
-    st.title("📈 Technical Analysis")
-    st.markdown("##### Candlestick · EMAs · Bollinger Bands · Volume · Powered by yfinance")
-    st.markdown("---")
+    page_header("Technical Analysis", "Candlestick charts, EMA/Bollinger overlays, and AI pattern detection.")
 
     # ── Controls row ──────────────────────────────────────────────────────
     ctrl1, ctrl2 = st.columns([2, 6])

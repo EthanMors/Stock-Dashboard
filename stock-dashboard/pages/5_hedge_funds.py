@@ -6,6 +6,9 @@ from data.hedge_fund_fetcher import get_categorized_funds
 st.set_page_config(page_title="Hedge Funds", page_icon="🏦", layout="wide")
 
 render_gemini_usage_bar()
+from components.ui import inject_global_css, page_header, render_sidebar_nav
+inject_global_css()
+render_sidebar_nav()
 
 
 def _render_sidebar() -> None:
@@ -98,12 +101,10 @@ def _render_fund_list(funds: list) -> None:
 def main() -> None:
     _render_sidebar()
 
-    st.title("Concentrated Hedge Funds — 13F Analysis")
-    st.markdown(
-        "Institutional managers with **fewer than 15 reported positions** in their "
-        "latest SEC 13F-HR filing, grouped by portfolio size."
+    page_header(
+        "Hedge Funds — 13F Analysis",
+        "Institutional managers with fewer than 15 reported positions in their latest SEC 13F-HR filing.",
     )
-    st.markdown("---")
 
     with st.spinner(
         "Loading 13F data from SEC EDGAR... "
