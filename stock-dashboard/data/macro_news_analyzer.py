@@ -2,6 +2,7 @@ import json
 import re
 import subprocess
 
+from data.agy_client import run_agy
 from data.gemini_tracker import record_call
 
 _VALID_IMPACT_TYPES = frozenset({
@@ -47,24 +48,12 @@ _DEFAULT_RESULT = {
 
 
 def _run_gemini(prompt: str) -> str:
-    """Call Gemini CLI via subprocess, passing prompt via stdin to avoid shell interpretation issues."""
+    """Call the Antigravity (agy) CLI on the Flash tier; return stdout ('' on failure)."""
     try:
-        result = subprocess.run(
-            ["gemini.cmd", "-p", ""],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-            timeout=90,
-        )
-        output = result.stdout.strip()
+        output, _ = run_agy(prompt, model=None, timeout=90)
         if output:
             record_call("flash")
         return output
-    except subprocess.TimeoutExpired:
-        return ""
     except Exception:
         return ""
 

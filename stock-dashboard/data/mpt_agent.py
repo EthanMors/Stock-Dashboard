@@ -20,6 +20,7 @@ import pandas as pd
 import yfinance as yf
 from scipy.optimize import minimize
 
+from data.agy_client import PRO_MODEL, run_agy
 from data.gemini_tracker import record_call
 
 # ---------------------------------------------------------------------------
@@ -448,24 +449,12 @@ def _build_prompt(metrics: dict, positions: list) -> str:
 # ---------------------------------------------------------------------------
 
 def _run_gemini_pro(prompt: str) -> tuple[str, str]:
-    """Call Gemini 2.5 Pro via CLI subprocess. Returns (stdout, stderr). Prompt via stdin."""
+    """Call the Antigravity (agy) CLI on the Pro tier. Returns (stdout, stderr)."""
     try:
-        result = subprocess.run(
-            ["gemini.cmd", "-m", "gemini-2.5-pro", "-p", ""],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-            timeout=180,
-        )
-        output = result.stdout.strip()
+        output, stderr = run_agy(prompt, model=PRO_MODEL, timeout=180)
         if output:
             record_call("pro")
-        return output, result.stderr.strip()
-    except subprocess.TimeoutExpired:
-        return "", "Timed out after 180s"
+        return output, stderr
     except Exception as exc:
         return "", str(exc)
 

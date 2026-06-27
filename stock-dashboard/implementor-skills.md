@@ -92,66 +92,53 @@ Rules:
 
 ---
 
-## Gemini CLI Invocation
+## Gemini CLI Invocation (Antigravity `agy`)
 
-### Flash (default — news, Reddit, fast analysis)
+The old `gemini.cmd` CLI was deprecated. All AI analysis now goes through the
+**Antigravity CLI (`agy`)** on the user's logged-in Gemini/Antigravity
+subscription (keyring OAuth — no API key). `agy` is an agentic TUI: in print
+mode (`-p`) it only renders output to a real terminal, so it is driven through a
+Windows pseudo-console (ConPTY via `pywinpty`). All of that is encapsulated in
+**`data/agy_client.py`** — never call `agy` (or `subprocess`) directly from a
+fetcher/agent; always go through `run_agy`.
+
+### The single entry point
 
 ```python
-import subprocess
-import re
-import json
+from data.agy_client import run_agy, PRO_MODEL  # FLASH_MODEL also available
+
+# Flash (default — news, Reddit, fast analysis): omit model
+stdout, stderr = run_agy(prompt, model=None, timeout=90)
+
+# Pro (deep reasoning — options, MPT, hedge-fund, portfolio insights)
+stdout, stderr = run_agy(prompt, model=PRO_MODEL, timeout=180)
+```
+
+`run_agy` returns `(stdout, stderr)`: on success `stdout` is the cleaned
+response text and `stderr` is `""`; on timeout/failure `stdout` is `""` and
+`stderr` holds the message.
+
+### Standard runner wrappers (keep the per-module pattern)
+
+```python
+from data.agy_client import run_agy            # flash
+from data.agy_client import PRO_MODEL, run_agy  # pro
 from data.gemini_tracker import record_call
 
-def _run_gemini_flash(prompt: str) -> tuple[str, str]:
-    """Returns (stdout, stderr). Prompt via stdin."""
-    try:
-        result = subprocess.run(
-            ["gemini.cmd", "-p", ""],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-            timeout=90,
-        )
-        output = result.stdout.strip()
-        if output:
-            record_call("flash")
-        return output, result.stderr.strip()
-    except subprocess.TimeoutExpired:
-        return "", "Timed out after 90s"
-    except Exception as exc:
-        return "", str(exc)
-```
+def _run_gemini(prompt: str) -> str:            # flash → returns stdout only
+    output, _ = run_agy(prompt, model=None, timeout=90)
+    if output:
+        record_call("flash")
+    return output
 
-### Pro (Gemini 2.5 Pro — options analysis, deep reasoning)
-
-```python
 def _run_gemini_pro(prompt: str) -> tuple[str, str]:
-    """Returns (stdout, stderr). Prompt via stdin."""
-    try:
-        result = subprocess.run(
-            ["gemini.cmd", "-m", "gemini-2.5-pro", "-p", ""],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-            timeout=120,
-        )
-        output = result.stdout.strip()
-        if output:
-            record_call("pro")
-        return output, result.stderr.strip()
-    except subprocess.TimeoutExpired:
-        return "", "Timed out after 120s"
-    except Exception as exc:
-        return "", str(exc)
+    output, stderr = run_agy(prompt, model=PRO_MODEL, timeout=180)
+    if output:
+        record_call("pro")
+    return output, stderr
 ```
 
-### Parsing JSON from Gemini output
+### Parsing JSON from the output
 
 ```python
 def _parse_gemini_json(raw: str) -> dict | None:
@@ -165,11 +152,15 @@ def _parse_gemini_json(raw: str) -> dict | None:
 ```
 
 **Key rules:**
-- NEVER use the Gemini Python SDK or Anthropic SDK — only `subprocess` + `gemini.cmd`.
-- `-p ""` is the headless flag for non-interactive mode. Always include it.
-- `-m gemini-2.5-pro` selects the Pro model. Omit `-m` for Flash (default).
-- Always call `record_call("flash")` or `record_call("pro")` after a successful call (non-empty output).
-- Daily limits: Flash = 1000/day, Pro = 50/day. Pro costs more; use Flash for anything that doesn't require deep reasoning.
+- NEVER use the Gemini Python SDK or Anthropic SDK, and never shell out to `agy`
+  directly — only go through `data/agy_client.run_agy`.
+- Model labels come from `agy models`. `PRO_MODEL` = `"Gemini 3.1 Pro (High)"`;
+  Flash (default) is `model=None`. Pass the exact label string to `--model`.
+- `run_agy` already strips ANSI/spinner noise; the prompt is passed via `-p`.
+- Always call `record_call("flash")` or `record_call("pro")` after a successful
+  call (non-empty output).
+- Daily limits: Flash = 1000/day, Pro = 50/day. Pro costs more; use Flash for
+  anything that doesn't require deep reasoning.
 
 ---
 

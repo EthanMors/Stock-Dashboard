@@ -6,30 +6,19 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 
+from data.agy_client import PRO_MODEL, run_agy
 from data.gemini_tracker import record_call
 
 
 # ── Gemini Pro runner ─────────────────────────────────────────────────────────
 
 def _run_gemini_pro(prompt: str) -> tuple[str, str]:
-    """Call Gemini 2.5 Pro via CLI. Returns (stdout, stderr). Prompt passed via stdin."""
+    """Call the Antigravity (agy) CLI on the Pro tier. Returns (stdout, stderr)."""
     try:
-        result = subprocess.run(
-            ["gemini.cmd", "-m", "gemini-2.5-pro", "-p", ""],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-            timeout=120,
-        )
-        output = result.stdout.strip()
+        output, stderr = run_agy(prompt, model=PRO_MODEL, timeout=120)
         if output:
             record_call("pro")
-        return output, result.stderr.strip()
-    except subprocess.TimeoutExpired:
-        return "", "Timed out after 120s"
+        return output, stderr
     except Exception as exc:
         return "", str(exc)
 

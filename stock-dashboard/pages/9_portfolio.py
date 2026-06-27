@@ -16,6 +16,7 @@ from scipy.stats import norm
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 from analytics.patterns import DetectedPattern, PatternDetectionEngine
+from data.agy_client import run_agy
 from data.gemini_tracker import record_call
 
 from components.gemini_usage_bar import render_gemini_usage_bar
@@ -50,6 +51,8 @@ from data.hedge_fund_fetcher import get_all_funds_from_db, refresh_hedge_fund_db
 from data.reddit_fetcher import fetch_top_posts_for_ticker
 from data.wsb_sentiment import analyze_sentiment, analyze_batch_sentiment
 from data.portfolio_insights_agent import run_portfolio_insights
+from data import fred_fetcher
+from data.macro_impact_agent import run_macro_impact_analysis
 from data.fetcher import get_batch_history
 
 st.set_page_config(page_title="Portfolio", layout="wide")
@@ -555,23 +558,13 @@ def _ta_port_build_chart(
 
 
 def _ta_port_run_gemini(prompt: str) -> str:
-    """Call Gemini Flash CLI for TA analysis in the Portfolio TA tab."""
+    """Call the Antigravity (agy) CLI on the Flash tier for the Portfolio TA tab."""
     try:
-        result = subprocess.run(
-            ["gemini.cmd", "-p", ""],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-            timeout=90,
-        )
-        output = result.stdout.strip()
+        output, _ = run_agy(prompt, model=None, timeout=90)
         if output:
             record_call("flash")
         return output
-    except (subprocess.TimeoutExpired, Exception):
+    except Exception:
         return ""
 
 
@@ -2047,6 +2040,243 @@ def _render_market_pulse_section() -> None:
         _render_macro_card_portfolio(analysis, i)
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# Economy (FRED macro) section
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_MACRO_REGIME_COLOR = {
+    "goldilocks": "#2ecc71", "expansion": "#27ae60", "recovery": "#3498db",
+    "slowdown": "#f39c12", "stagflation": "#e67e22", "contraction": "#e74c3c",
+}
+_MACRO_STANCE_COLOR = {
+    "tailwind": "#2ecc71", "headwind": "#e74c3c", "mixed": "#f39c12", "neutral": "#95a5a6",
+}
+_MACRO_IMPACT_COLOR = {
+    "positive": "#2ecc71", "benefits": "#2ecc71",
+    "negative": "#e74c3c", "pressured": "#e74c3c",
+    "mixed": "#f39c12", "neutral": "#95a5a6",
+}
+
+
+@st.cache_data(ttl=21600)  # 6h — FRED daily series update at most once per day
+def _cached_macro_indicators() -> dict:
+    return fred_fetcher.get_macro_indicators()
+
+
+def _render_fred_metric_card(ind: dict) -> None:
+    """Render one FRED indicator as a compact metric card."""
+    label = ind.get("label", "")
+    if "_error" in ind:
+        st.markdown(
+            f'<div style="background:#161b27;border:1px solid #1e2740;border-radius:8px;'
+            f'padding:12px 14px;height:100%">'
+            f'<div style="color:#7a85a0;font-size:0.75rem;text-transform:uppercase;'
+            f'letter-spacing:0.5px">{label}</div>'
+            f'<div style="color:#e74c3c;font-size:0.85rem;margin-top:6px">unavailable</div></div>',
+            unsafe_allow_html=True,
+        )
+        return
+
+    units = ind.get("units", "")
+    unit_suffix = "%" if units == "%" else ""
+    value = ind.get("value")
+    if units == "$B" and value is not None:
+        value_str = f"${value/1000:,.2f}T"
+    elif value is not None:
+        value_str = f"{value:,.2f}{unit_suffix}"
+    else:
+        value_str = "n/a"
+
+    change = ind.get("change")
+    if change is not None:
+        arrow = "▲" if change > 0 else "▼" if change < 0 else "▬"
+        dcolor = "#e0a02f" if change > 0 else "#3aa6ff" if change < 0 else "#7a85a0"
+        delta_str = (
+            f'<span style="color:{dcolor};font-size:0.8rem">{arrow} '
+            f'{abs(change):,.2f}{unit_suffix} vs prior</span>'
+        )
+    else:
+        delta_str = '<span style="color:#7a85a0;font-size:0.8rem">—</span>'
+
+    date = ind.get("date", "")
+    st.markdown(
+        f'<div style="background:#161b27;border:1px solid #1e2740;border-radius:8px;'
+        f'padding:12px 14px;height:100%">'
+        f'<div style="color:#7a85a0;font-size:0.75rem;text-transform:uppercase;'
+        f'letter-spacing:0.5px">{label}</div>'
+        f'<div style="color:#e8eaf0;font-size:1.45rem;font-weight:700;margin:4px 0">{value_str}</div>'
+        f'{delta_str}'
+        f'<div style="color:#5a647d;font-size:0.68rem;margin-top:4px">as of {date}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _render_macro_impact(result: dict) -> None:
+    """Render the Gemini macro-impact analysis result dict."""
+    if "_error" in result:
+        st.error(f"Gemini error: {result['_error']}")
+        return
+
+    regime = result.get("macro_regime", {})
+    rlabel = regime.get("label", "neutral")
+    rcolor = _MACRO_REGIME_COLOR.get(rlabel, "#95a5a6")
+    one_liner = regime.get("one_liner", "")
+    rsummary = regime.get("summary", "")
+
+    st.markdown(
+        f'<div style="background:linear-gradient(135deg,{rcolor}22,{rcolor}11);'
+        f'border-left:4px solid {rcolor};border-radius:8px;padding:14px 20px;margin-bottom:12px">'
+        f'<span style="color:{rcolor};font-size:1.3rem;font-weight:700">'
+        f'🏛️ MACRO REGIME: {rlabel.upper()}</span>'
+        + (f"&nbsp;&nbsp;<span style='color:#ccc;font-size:0.95rem'>{one_liner}</span>" if one_liner else "")
+        + '</div>',
+        unsafe_allow_html=True,
+    )
+    if rsummary:
+        st.markdown(
+            f'<div style="background:#1a1a2e;border-left:4px solid {rcolor};border-radius:6px;'
+            f'padding:14px 18px;margin-bottom:14px">'
+            f'<p style="color:#ddd;font-size:0.93rem;margin:0;line-height:1.6">{rsummary}</p></div>',
+            unsafe_allow_html=True,
+        )
+
+    # Portfolio impact banner
+    pi = result.get("portfolio_impact", {})
+    stance = pi.get("stance", "neutral")
+    scolor = _MACRO_STANCE_COLOR.get(stance, "#95a5a6")
+    rationale = pi.get("rationale", "")
+    if rationale:
+        st.markdown(
+            f'<div style="background:#1e1e2e;border-left:4px solid {scolor};border-radius:6px;'
+            f'padding:12px 16px;margin-bottom:16px">'
+            f'<strong style="color:{scolor}">PORTFOLIO: {stance.upper()}</strong>'
+            f'<br><span style="color:#ccc;font-size:0.9rem;line-height:1.5">{rationale}</span></div>',
+            unsafe_allow_html=True,
+        )
+
+    # Indicator effects + position callouts side by side
+    col_ind, col_pos = st.columns(2)
+
+    with col_ind:
+        st.markdown("**📊 Indicator Effects**")
+        for item in result.get("indicator_effects", []):
+            indicator = item.get("indicator", "?")
+            reading = item.get("reading", "")
+            impact = item.get("impact", "neutral")
+            holdings = item.get("affected_holdings", []) or []
+            detail = item.get("detail", "")
+            ic = _MACRO_IMPACT_COLOR.get(impact, "#95a5a6")
+            hold_str = ", ".join(holdings) if holdings else "broad"
+            st.markdown(
+                f'<div style="background:#1e1e2e;border-left:4px solid {ic};border-radius:6px;'
+                f'padding:9px 13px;margin-bottom:7px">'
+                f'<strong style="color:#e8eaf0">{indicator}</strong>'
+                f'&nbsp;<span style="background:{ic}33;color:{ic};padding:1px 7px;border-radius:10px;'
+                f'font-size:0.72rem;font-weight:700">{impact.upper()}</span>'
+                + (f'<br><span style="color:#9aa3b8;font-size:0.78rem">{reading}</span>' if reading else "")
+                + f'<br><span style="color:#6f7894;font-size:0.74rem">→ {hold_str}</span>'
+                + (f'<br><span style="color:#ccc;font-size:0.83rem;line-height:1.4">{detail}</span>' if detail else "")
+                + '</div>',
+                unsafe_allow_html=True,
+            )
+
+    with col_pos:
+        st.markdown("**🎯 Position Callouts**")
+        for item in result.get("position_callouts", []):
+            ticker = item.get("ticker", "?")
+            sensitivity = item.get("sensitivity", "medium")
+            effect = item.get("effect", "neutral")
+            detail = item.get("detail", "")
+            ec = _MACRO_IMPACT_COLOR.get(effect, "#95a5a6")
+            st.markdown(
+                f'<div style="background:#1e1e2e;border-left:4px solid {ec};border-radius:6px;'
+                f'padding:9px 13px;margin-bottom:7px">'
+                f'<strong style="color:{ec}">{ticker}</strong>'
+                f'&nbsp;<span style="background:{ec}33;color:{ec};padding:1px 7px;border-radius:10px;'
+                f'font-size:0.72rem;font-weight:700">{effect.upper()}</span>'
+                f'&nbsp;<span style="color:#6f7894;font-size:0.72rem">{sensitivity} sensitivity</span>'
+                + (f'<br><span style="color:#ccc;font-size:0.83rem;line-height:1.4">{detail}</span>' if detail else "")
+                + '</div>',
+                unsafe_allow_html=True,
+            )
+
+    actions = result.get("recommended_actions", [])
+    if actions:
+        st.markdown("**✅ Recommended Actions**")
+        st.markdown(
+            "\n".join(f"- {a}" for a in actions),
+        )
+
+
+def _render_economy_tab(positions: list) -> None:
+    """Render the Economy tab: FRED indicators + Gemini macro-impact analysis."""
+    st.subheader("🏛️ Economy")
+    st.caption(
+        "Key US macro indicators from FRED, with a Gemini 3.1 Pro read on how the "
+        "current regime impacts your holdings."
+    )
+
+    if not fred_fetcher.is_configured():
+        st.warning(
+            "FRED API key not configured. Add `FRED_API_KEY` to your `.env` file "
+            "(get a free key at https://fred.stlouisfed.org/docs/api/api_key.html) and restart."
+        )
+        return
+
+    head_col, btn_col = st.columns([6, 2])
+    with btn_col:
+        if st.button("🔄 Refresh Data", key="fred_refresh_btn", use_container_width=True):
+            _cached_macro_indicators.clear()
+            st.session_state.macro_impact = None
+            st.rerun()
+
+    with st.spinner("Fetching FRED macro data…"):
+        indicators = _cached_macro_indicators()
+
+    meta = indicators.get("_meta", {})
+    if not meta.get("configured", False):
+        st.error(meta.get("error", "Could not fetch FRED data."))
+        return
+
+    # Five indicator cards
+    order = ["unemployment", "fed_funds", "cpi", "treasury_10y", "real_gdp"]
+    cards = st.columns(5)
+    for col, key in zip(cards, order):
+        with col:
+            _render_fred_metric_card(indicators.get(key, {}))
+
+    st.markdown("---")
+
+    # Gemini macro-impact analysis
+    run_col, cap_col = st.columns([2, 6])
+    with run_col:
+        _run_macro = st.button(
+            "🤖 Analyze Impact on Portfolio",
+            key="macro_impact_btn",
+            use_container_width=True,
+        )
+    with cap_col:
+        st.caption("Gemini 3.1 Pro maps these macro readings onto your specific holdings · ~60–120s")
+
+    if _run_macro:
+        st.session_state.macro_impact = None
+        with st.spinner("Gemini 3.1 Pro analyzing macro impact on your portfolio…"):
+            st.session_state.macro_impact = run_macro_impact_analysis(indicators, positions)
+
+    if st.session_state.macro_impact is not None:
+        _render_macro_impact(st.session_state.macro_impact)
+    else:
+        st.markdown(
+            '<div style="background:#161b27;border:1px solid #1e2740;border-radius:8px;'
+            'padding:14px 18px;color:#7a85a0;font-size:0.85rem;line-height:1.5">'
+            'Click <strong style="color:#e8eaf0">🤖 Analyze Impact on Portfolio</strong> for '
+            'Gemini 3.1 Pro\'s read on how unemployment, rates, inflation, the 10-year yield, '
+            'and GDP are affecting your holdings right now.</div>',
+            unsafe_allow_html=True,
+        )
+
+
 def _sentiment_color(label: str) -> str:
     return {"positive": "#2ecc71", "negative": "#e74c3c"}.get(label, "#95a5a6")
 
@@ -3161,6 +3391,7 @@ if "wsb_results"     not in st.session_state: st.session_state.wsb_results     =
 if "hf_analysis"     not in st.session_state: st.session_state.hf_analysis     = None
 if "mpt_analysis"    not in st.session_state: st.session_state.mpt_analysis    = None
 if "ai_insights"     not in st.session_state: st.session_state.ai_insights     = None
+if "macro_impact"    not in st.session_state: st.session_state.macro_impact    = None
 
 if not tickers:
     st.warning("Could not extract ticker symbols from position data.")
@@ -3745,7 +3976,7 @@ def _options_analysis_ui(tickers: list[str]) -> None:
 # Main tab navigation — wire everything together
 # ---------------------------------------------------------------------------
 
-_tab_dash, _tab_news, _tab_opt, _tab_ta, _tab_reddit, _tab_smart, _tab_pulse = st.tabs([
+_tab_dash, _tab_news, _tab_opt, _tab_ta, _tab_reddit, _tab_smart, _tab_pulse, _tab_econ = st.tabs([
     "📊 Dashboard",
     "📰 News",
     "⚡ Options & MPT",
@@ -3753,6 +3984,7 @@ _tab_dash, _tab_news, _tab_opt, _tab_ta, _tab_reddit, _tab_smart, _tab_pulse = s
     "📡 Reddit",
     "🏦 Smart Money",
     "🌍 Market Pulse",
+    "🏛️ Economy",
 ])
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -4096,6 +4328,9 @@ with _tab_smart:
 
 with _tab_pulse:
     _render_market_pulse_section()
+
+with _tab_econ:
+    _render_economy_tab(positions_result)
 
 # Options analysis UI (fragment — renders inside tab_opt context)
 with _tab_opt:

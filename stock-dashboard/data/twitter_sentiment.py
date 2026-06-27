@@ -11,6 +11,7 @@ import json
 import re
 import subprocess
 
+from data.agy_client import run_agy
 from data.gemini_tracker import record_call
 
 # ---------------------------------------------------------------------------
@@ -72,22 +73,10 @@ def _run_gemini(prompt: str) -> str:
     Returns empty string on any failure.
     """
     try:
-        result = subprocess.run(
-            ["gemini.cmd", "-p", ""],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-            timeout=60,
-        )
-        output = result.stdout.strip()
+        output, _ = run_agy(prompt, model=None, timeout=60)
         if output:
             record_call("flash")
         return output
-    except subprocess.TimeoutExpired:
-        return ""
     except Exception:
         return ""
 

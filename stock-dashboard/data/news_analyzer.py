@@ -4,6 +4,7 @@ import subprocess
 
 import yfinance as yf
 
+from data.agy_client import run_agy
 from data.gemini_tracker import record_call
 
 _SECTOR_ETF_MAP: dict[str, str] = {
@@ -41,26 +42,11 @@ Respond ONLY with a JSON object:
 
 
 def _run_gemini(prompt: str) -> str:
-    """Call Gemini CLI via subprocess, passing prompt via stdin to avoid shell interpretation issues."""
-    try:
-        result = subprocess.run(
-            ["gemini.cmd", "-p", ""],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-            timeout=90,
-        )
-        output = result.stdout.strip()
-        if output:
-            record_call("flash")
-        return output
-    except subprocess.TimeoutExpired:
-        return ""
-    except Exception:
-        return ""
+    """Call the Antigravity (agy) CLI on the Flash tier; return stdout ('' on failure)."""
+    output, _ = run_agy(prompt, model=None, timeout=90)
+    if output:
+        record_call("flash")
+    return output
 
 
 def _parse_response(raw: str) -> dict | None:

@@ -11,6 +11,7 @@ import plotly.graph_objects as go
 from components.gemini_usage_bar import render_gemini_usage_bar
 from components.ui import inject_global_css, page_header, render_sidebar_nav
 from analytics.patterns import DetectedPattern, PatternDetectionEngine
+from data.agy_client import run_agy
 from data.gemini_tracker import record_call
 
 st.set_page_config(page_title="Technical Analysis", page_icon="📈", layout="wide")
@@ -596,23 +597,13 @@ def _render_sidebar() -> tuple[bool, bool, int, float, bool]:
 # ---------------------------------------------------------------------------
 
 def _run_gemini_ta(prompt: str) -> str:
-    """Call Gemini CLI for technical analysis via stdin (same pattern as wsb_sentiment.py)."""
+    """Call the Antigravity (agy) CLI on the Flash tier for technical analysis."""
     try:
-        result = subprocess.run(
-            ["gemini.cmd", "-p", ""],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-            timeout=90,
-        )
-        output = result.stdout.strip()
+        output, _ = run_agy(prompt, model=None, timeout=90)
         if output:
             record_call("flash")
         return output
-    except (subprocess.TimeoutExpired, Exception):
+    except Exception:
         return ""
 
 

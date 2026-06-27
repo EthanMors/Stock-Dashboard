@@ -22,6 +22,7 @@ import json
 import re
 import subprocess
 
+from data.agy_client import PRO_MODEL, run_agy
 from data.gemini_tracker import record_call
 
 # ---------------------------------------------------------------------------
@@ -251,19 +252,9 @@ def _build_data_block(portfolio_data: dict) -> str:
 # ---------------------------------------------------------------------------
 
 def _run_gemini_pro(prompt: str) -> tuple[str, str]:
-    """Call Gemini 2.5 Pro via CLI subprocess. Returns (stdout, stderr)."""
+    """Call the Antigravity (agy) CLI on the Pro tier. Returns (stdout, stderr)."""
     try:
-        result = subprocess.run(
-            ["gemini.cmd", "-m", "gemini-2.5-pro", "-p", ""],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            timeout=180,
-        )
-        return result.stdout.strip(), result.stderr.strip()
-    except subprocess.TimeoutExpired:
-        return "", "Gemini 2.5 Pro timed out after 180s."
+        return run_agy(prompt, model=PRO_MODEL, timeout=180)
     except Exception as e:
         return "", str(e)
 

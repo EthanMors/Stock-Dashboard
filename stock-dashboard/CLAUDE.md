@@ -59,6 +59,7 @@ Copy `.env.example` to `.env`. Required variables:
 
 ```env
 MASSIVE_API_KEY=       # Massive.com news API (required for news page)
+FRED_API_KEY=          # FRED macro data (Economy tab) — free at fred.stlouisfed.org/docs/api/api_key.html
 REDDIT_USERNAME=       # Used in Reddit User-Agent header
 WEBULL_APP_KEY=        # Webull Official OpenAPI key (from developer.webull.com)
 WEBULL_APP_SECRET=     # Webull Official OpenAPI secret
@@ -76,7 +77,14 @@ Webull API keys start in "Pending" status and must be authorized via the Webull 
 - **SQLite access:** Use the helpers in `cache.py` and `thesis_form.py` rather than opening raw connections in pages.
 
 ## Use of AI for analysis
-Make sure whenever we are attempting to use AI for any type of analysis we have to implement it using the CLI version I do not have access to any API keys for gemini or claude so use the CLI on the pro tier.
+All AI analysis must use the **Antigravity CLI (`agy`)** on the user's logged-in
+Gemini subscription — there are no API keys for Gemini or Claude. (`agy` replaced
+the deprecated `gemini.cmd`.) Never call `agy` or `subprocess` directly: route
+every call through `data/agy_client.run_agy(prompt, model=..., timeout=...)`,
+which drives `agy` print mode through a pseudo-console (`pywinpty`) and returns
+`(stdout, stderr)`. Use `model=None` for the Flash tier and `PRO_MODEL`
+("Gemini 3.1 Pro (High)") for deep reasoning. See `implementor-skills.md` for the
+runner-wrapper pattern.
 
 ## Default Coding Workflow
 
