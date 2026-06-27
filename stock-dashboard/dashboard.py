@@ -29,6 +29,7 @@ _PAGES = [
     {"icon": "📁", "label": "Portfolio",     "path": "pages/9_portfolio.py"},
     {"icon": "📈", "label": "Technical Analysis", "path": "pages/10_technical_analysis.py"},
     {"icon": "🔬", "label": "Backtest",      "path": "pages/11_backtest.py"},
+    {"icon": "🔍", "label": "AI Screener",   "path": "pages/12_screener.py"},
 ]
 
 _DEMO_TICKERS = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN"]
