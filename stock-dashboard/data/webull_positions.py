@@ -1,7 +1,10 @@
 import os
 from dotenv import load_dotenv
+from pathlib import Path
 
-load_dotenv()
+# Resolve absolute path to .env (located in parent stock-dashboard directory)
+ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(dotenv_path=ENV_PATH)
 
 APP_KEY = os.getenv("WEBULL_APP_KEY", "")
 APP_SECRET = os.getenv("WEBULL_APP_SECRET", "")

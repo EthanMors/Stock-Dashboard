@@ -3998,11 +3998,174 @@ with _tab_dash:
     _ins_btn_col, _ins_run_col, _ins_cap_col = st.columns([2, 2, 4])
     with _ins_btn_col:
         if st.button("⚡ Analyze Everything", use_container_width=True, key="analyze_everything_btn"):
-            st.session_state.analyze_all_news    = True
-            st.session_state.analyze_all_options = True
-            st.session_state.analyze_all_hf      = True
-            st.session_state.analyze_all_mpt     = True
-            st.session_state.analyze_all_reddit  = True
+            progress_bar = st.progress(0, text="Initializing analysis…")
+            
+            # Step 1: News Analysis (20% of progress bar)
+            _n_done = 0
+            
+            def _analyze_news_ticker(ticker):
+                ticker_upper = ticker.upper()
+                cached_db = get_latest_analysis(ticker_upper)
+                articles = fetch_news(ticker_upper, limit=20)
+                if cached_db is not None and not has_new_articles(ticker_upper, articles):
+                    return ticker_upper, {
+                        "result": {
+                            "sentiment_score": cached_db["sentiment_score"],
+                            "sentiment_label": cached_db["sentiment_label"],
+                            "summary": cached_db["summary"],
+                            "impact_level": cached_db["impact_level"],
+                            "key_themes": cached_db["key_themes"],
+                            "is_stock_specific": cached_db["is_stock_specific"],
+                        },
+                        "article_count": cached_db["article_count"],
+                        "sector": cached_db["sector"] or "",
+                        "is_fallback": cached_db["is_fallback"],
+                        "analyzed_at": cached_db["analyzed_at"],
+                        "from_db": True,
+                    }
+                return ticker_upper, _run_analysis_for_ticker(ticker_upper, previous_analysis=cached_db)
+
+            if tickers:
+                with ThreadPoolExecutor(max_workers=3) as _n_exec:
+                    _n_futures = {_n_exec.submit(_analyze_news_ticker, t): t for t in tickers}
+                    for _n_fut in as_completed(_n_futures):
+                        _nt, _ne = _n_fut.result()
+                        st.session_state.news_results[_nt] = _ne
+                        _n_done += 1
+                        _n_lbl = "Gemini" if not _ne.get("from_db") else "cache"
+                        progress_bar.progress(
+                            0.05 + 0.15 * (_n_done / len(tickers)),
+                            text=f"1/5: News Sentiment - {_nt} ({_n_lbl})"
+                        )
+            else:
+                progress_bar.progress(0.20, text="1/5: News Sentiment - No tickers")
+
+            # Step 2: Options Analysis (20% of progress bar)
+            progress_bar.progress(0.20, text="2/5: Fetching Options Chain & Greeks…")
+            oa_completed = 0
+            
+            def _analyze_options_ticker(t):
+                from datetime import datetime as _dt_w, timezone as _tz_w
+                try:
+                    t_price, t_expirations = _fetch_price_and_expirations(t)
+                except Exception:
+                    return _opt_session_key(t, "", "put"), None
+                if not t_expirations or t_price is None:
+                    return _opt_session_key(t, "", "put"), None
+                nearest_expiry = t_expirations[0]
+                sess_key = _opt_session_key(t, nearest_expiry, "put")
+                cached_db = get_latest_options_analysis(t, nearest_expiry, "put")
+                if cached_db is not None and is_options_analysis_fresh(cached_db.get("analyzed_at", "")):
+                    return sess_key, {**cached_db, "from_db": True}
+                try:
+                    t_calls, t_puts = _fetch_chain(t, nearest_expiry)
+                    t_calls_display = _build_options_display_df(t_calls, t_price, nearest_expiry, "call")
+                    t_puts_display  = _build_options_display_df(t_puts,  t_price, nearest_expiry, "put")
+                except Exception:
+                    return sess_key, None
+                result = run_options_analysis(t, t_price, nearest_expiry, "put", t_calls, t_puts, t_calls_display, t_puts_display)
+                if result and "_error" not in result:
+                    save_options_analysis(t, nearest_expiry, "put", t_price, result)
+                analyzed_at = _dt_w.now(_tz_w.utc).strftime("%Y-%m-%dT%H:%M:%S")
+                entry = {**result, "analyzed_at": analyzed_at, "from_db": False}
+                return sess_key, entry
+
+            if tickers:
+                with ThreadPoolExecutor(max_workers=3) as oa_executor:
+                    oa_futures = {oa_executor.submit(_analyze_options_ticker, t): t for t in tickers}
+                    for oa_future in as_completed(oa_futures):
+                        t = oa_futures[oa_future]
+                        sess_key, entry = oa_future.result()
+                        oa_completed += 1
+                        if entry is not None:
+                            st.session_state.options_results[sess_key] = entry
+                        _lbl = "cache" if (entry and entry.get("from_db")) else "Gemini"
+                        progress_bar.progress(
+                            0.20 + 0.20 * (oa_completed / len(tickers)),
+                            text=f"2/5: Options Analysis - {t} ({_lbl})"
+                        )
+            else:
+                progress_bar.progress(0.40, text="2/5: Options Analysis - No tickers")
+
+            # Step 3: Reddit Sentiment (20% of progress bar)
+            progress_bar.progress(0.40, text="3/5: Running Reddit Sentiment Analysis…")
+            rsent_completed = 0
+            
+            def _fetch_wsb(t):
+                return t, _load_reddit_sentiment(t)
+
+            if tickers:
+                with ThreadPoolExecutor(max_workers=3) as rsent_exec:
+                    rsent_futures = {rsent_exec.submit(_fetch_wsb, t): t for t in tickers}
+                    for rsent_future in as_completed(rsent_futures):
+                        t = rsent_futures[rsent_future]
+                        try:
+                            t_key, entry = rsent_future.result()
+                        except Exception as exc:
+                            t_key = t
+                            entry = {"summary_row": None, "posts": [], "from_cache": False, "error": str(exc)}
+                        rsent_completed += 1
+                        st.session_state.wsb_results[t_key] = entry
+                        tag = "cache" if entry.get("from_cache") else ("error" if entry.get("error") else "Gemini")
+                        progress_bar.progress(
+                            0.40 + 0.20 * (rsent_completed / len(tickers)),
+                            text=f"3/5: Reddit Sentiment - {t_key} ({tag})"
+                        )
+            else:
+                progress_bar.progress(0.60, text="3/5: Reddit Sentiment - No tickers")
+
+            # Step 4: Hedge Fund Analysis (20% of progress bar)
+            progress_bar.progress(0.60, text="4/5: Running Hedge Fund Intelligence Analysis…")
+            portfolio_tickers = _get_portfolio_tickers(positions_result)
+            st.session_state.hf_analysis = None
+            cached_hf = get_latest_hedge_fund_analysis(portfolio_tickers)
+            if cached_hf is not None:
+                st.session_state.hf_analysis = {**cached_hf, "from_cache": True}
+                progress_bar.progress(0.80, text="4/5: Hedge Fund - Loaded cached analysis")
+            else:
+                overlapping = _find_overlapping_funds(portfolio_tickers)
+                if overlapping:
+                    result_hf = run_hedge_fund_analysis(overlapping, portfolio_tickers)
+                    if result_hf is not None and "_error" not in result_hf:
+                        save_hedge_fund_analysis(portfolio_tickers, result_hf)
+                    st.session_state.hf_analysis = {**(result_hf or {}), "from_cache": False}
+                    progress_bar.progress(0.80, text="4/5: Hedge Fund - Fresh analysis complete")
+                else:
+                    st.session_state.hf_analysis = {"from_cache": False}
+                    progress_bar.progress(0.80, text="4/5: Hedge Fund - No concentrated overlap")
+
+            # Step 5: MPT Analysis (20% of progress bar)
+            progress_bar.progress(0.80, text="5/5: Running MPT Portfolio Optimization…")
+            st.session_state.mpt_analysis = None
+            cached_mpt = get_latest_mpt_analysis(portfolio_tickers)
+            if cached_mpt is not None:
+                st.session_state.mpt_analysis = {**cached_mpt, "from_cache": True}
+                progress_bar.progress(1.0, text="5/5: MPT Analysis - Loaded cached analysis")
+            else:
+                raw_result = run_mpt_analysis(positions_result)
+                if raw_result is not None and "_error" not in raw_result:
+                    metrics_to_save = raw_result.pop("_metrics", {})
+                    save_mpt_analysis(portfolio_tickers, raw_result, metrics_to_save)
+                    st.session_state.mpt_analysis = {
+                        "result": raw_result,
+                        "metrics": metrics_to_save,
+                        "analyzed_at": "",
+                        "from_cache": False,
+                    }
+                    progress_bar.progress(1.0, text="5/5: MPT Analysis - Optimization complete")
+                else:
+                    metrics_on_error = raw_result.pop("metrics", {}) if raw_result else {}
+                    st.session_state.mpt_analysis = {
+                        "result": raw_result or {"_error": "Analysis failed."},
+                        "metrics": metrics_on_error,
+                        "analyzed_at": "",
+                        "from_cache": False,
+                    }
+                    progress_bar.progress(1.0, text="5/5: MPT Analysis - Failed (fallback computed)")
+
+            time.sleep(0.5)
+            progress_bar.empty()
+            st.success("All portfolio assets successfully analyzed!")
             st.rerun()
     with _ins_run_col:
         _run_insights = st.button("🤖 Run AI Insights", use_container_width=True, key="ai_insights_btn")
@@ -4011,6 +4174,10 @@ with _tab_dash:
 
     if _run_insights:
         st.session_state.ai_insights = None
+        progress_bar = st.progress(0, text="Initializing portfolio insights synthesizer…")
+        time.sleep(0.3)
+        
+        progress_bar.progress(15, text="1/4: Preparing context window & structuring positions…")
         _pd = {
             "balance":         selected_balance,
             "positions":       positions_result,
@@ -4020,9 +4187,22 @@ with _tab_dash:
             "mpt_analysis":    st.session_state.mpt_analysis,
             "hf_analysis":     st.session_state.hf_analysis,
         }
-        with st.spinner("Gemini 2.5 Pro synthesizing all portfolio data… (~60–120s)"):
-            _insights_result = run_portfolio_insights(_pd)
+        time.sleep(0.3)
+        
+        progress_bar.progress(35, text="2/4: Compiling News, Reddit, and Options signal matrices…")
+        time.sleep(0.3)
+        
+        progress_bar.progress(55, text="3/4: Calling Gemini Pro synthesis model… (~60–120s)")
+        _insights_result = run_portfolio_insights(_pd)
+        
+        progress_bar.progress(90, text="4/4: Final validation & structured response parsing…")
         st.session_state.ai_insights = _insights_result
+        time.sleep(0.3)
+        
+        progress_bar.progress(100, text="Insights generation complete!")
+        time.sleep(0.5)
+        progress_bar.empty()
+        st.rerun()
 
     if st.session_state.ai_insights is not None:
         _render_ai_insights(st.session_state.ai_insights)

@@ -19,8 +19,11 @@ nest_asyncio.apply()
 
 import twscrape  # noqa: E402 — must come after nest_asyncio.apply()
 from dotenv import load_dotenv
+from pathlib import Path
 
-load_dotenv()
+# Resolve absolute path to .env (located in parent stock-dashboard directory)
+ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(dotenv_path=ENV_PATH)
 
 # ---------------------------------------------------------------------------
 # Constants

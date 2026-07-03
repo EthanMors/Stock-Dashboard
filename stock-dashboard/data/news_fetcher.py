@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from urllib.parse import urlparse
 
 import requests
@@ -6,7 +7,9 @@ import streamlit as st
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
-load_dotenv()
+# Resolve absolute path to .env (located in parent stock-dashboard directory)
+ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(dotenv_path=ENV_PATH)
 
 _API_KEY = os.getenv("MASSIVE_API_KEY", "")
 _BASE_URL = "https://api.massive.com"
@@ -118,10 +121,8 @@ def fetch_news(ticker: str, limit: int = 25) -> list[dict]:
         resp.raise_for_status()
         articles = resp.json().get("results", [])
         return [a for a in articles if not _is_paywalled(a.get("article_url", ""))]
-    except requests.HTTPError as exc:
-        st.warning(f"Massive API error {exc.response.status_code}: check your API key.")
-        return []
-    except Exception:
+    except Exception as exc:
+        st.warning(f"Error fetching news for {ticker}: {exc}")
         return []
 
 

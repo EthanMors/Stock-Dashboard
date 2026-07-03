@@ -28,8 +28,11 @@ from datetime import datetime, timezone
 
 import requests
 from dotenv import load_dotenv
+from pathlib import Path
 
-load_dotenv()
+# Resolve absolute path to .env (located in parent stock-dashboard directory)
+ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(dotenv_path=ENV_PATH)
 
 _API_KEY = os.getenv("FRED_API_KEY", "")
 _BASE_URL = "https://api.stlouisfed.org/fred/series/observations"
