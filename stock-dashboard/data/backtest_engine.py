@@ -43,6 +43,7 @@ from data.backtest_signals import (
     get_news_signals,
     get_options_ai_signals,
     get_reddit_signals,
+    get_screener_signals,
     get_technical_signals,
 )
 
@@ -672,7 +673,7 @@ def run_backtest(run_config: dict) -> str:
         date_to      : datetime.date — end date
         horizon_days : int — 1|5|10|20
         signal_types : list[str] — subset of ['options_ai','news','reddit',
-                       'hedge_fund','macro','mpt','technical']
+                       'hedge_fund','macro','mpt','technical','screener']
 
     Returns
     -------
@@ -745,6 +746,9 @@ def run_backtest(run_config: dict) -> str:
 
     if "technical" in signal_types:
         all_signals.extend(get_technical_signals(tickers, date_from, date_to))
+
+    if "screener" in signal_types:
+        all_signals.extend(get_screener_signals(tickers, date_from, date_to))
 
     if not all_signals:
         return run_id  # No signals found; run exists but will be empty

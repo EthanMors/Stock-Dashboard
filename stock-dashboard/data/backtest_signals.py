@@ -7,7 +7,7 @@ them to a normalized list of signal dicts ready for the backtest engine.
 Each returned signal dict has these keys:
     ticker       : str   — uppercase ticker symbol
     signal_date  : date  — datetime.date object (the day of analysis)
-    signal_type  : str   — one of: options_ai|news|reddit|hedge_fund|macro|mpt|technical
+    signal_type  : str   — one of: options_ai|news|reddit|hedge_fund|macro|mpt|technical|screener
     direction    : str   — 'bullish'|'bearish'|'neutral'
     score        : float — numeric [-1, 1] representing signal strength and direction
     source_db    : str   — human-readable source description
@@ -22,6 +22,7 @@ get_hedge_fund_signals(tickers, date_from, date_to) -> list[dict]
 get_macro_signals(date_from, date_to) -> list[dict]
 get_mpt_signals(tickers, date_from, date_to) -> list[dict]
 get_technical_signals(tickers, date_from, date_to) -> list[dict]
+get_screener_signals(tickers, date_from, date_to) -> list[dict]
 score_signal(signal_type, raw_output) -> float
 """
 
@@ -41,6 +42,7 @@ from analytics.patterns import PatternDetectionEngine
 
 _PORTFOLIO_DB = os.path.join(os.path.dirname(__file__), "..", "db", "portfolio.db")
 _WSB_DB       = os.path.join(os.path.dirname(__file__), "..", "db", "wsb.db")
+_SCREENER_DB  = os.path.join(os.path.dirname(__file__), "..", "db", "screener.db")
 
 
 # ---------------------------------------------------------------------------
@@ -55,6 +57,12 @@ def _portfolio_conn() -> sqlite3.Connection:
 
 def _wsb_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(_WSB_DB)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _screener_conn() -> sqlite3.Connection:
+    conn = sqlite3.connect(_SCREENER_DB)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -100,7 +108,7 @@ def score_signal(signal_type: str, raw_output: dict) -> float:
 
     Parameters
     ----------
-    signal_type : One of options_ai|news|reddit|hedge_fund|macro|mpt|technical
+    signal_type : One of options_ai|news|reddit|hedge_fund|macro|mpt|technical|screener
     raw_output  : Dict containing the original AI/engine output fields
 
     Returns
@@ -180,6 +188,21 @@ def score_signal(signal_type: str, raw_output: dict) -> float:
         direction_map = {"bullish": 1.0, "bearish": -1.0, "neutral": 0.0}
         d = direction_map.get(direction, 0.0)
         return round(d * confidence, 4)
+
+    elif signal_type == "screener":
+        stage = raw_output.get("stage_reached", "flash")
+        potential = raw_output.get("boom_potential")
+        conviction = raw_output.get("conviction")
+
+        if stage == "pro" and potential:
+            potential_map = {"explosive": 1.0, "high": 0.8, "moderate": 0.5, "limited": 0.2}
+            conviction_map = {"high": 1.0, "medium": 0.7, "low": 0.4}
+            p = potential_map.get(potential, 0.5)
+            c = conviction_map.get(conviction, 0.7)
+            return round(p * c, 4)
+        # Flash-only finalist (no Pro verdict yet): weak bullish signal — it made the
+        # top-2 catalyst cut, but hasn't been risk-audited.
+        return 0.3
 
     return 0.0
 
@@ -743,5 +766,75 @@ def get_technical_signals(
                     "source_db":   "PatternDetectionEngine/historical_ohlcv",
                     "raw_json":    json.dumps(raw),
                 })
+
+    return signals
+
+
+def get_screener_signals(
+    tickers: list[str],
+    date_from: date,
+    date_to: date,
+) -> list[dict]:
+    """Extract AI screener pick signals from screener_picks in screener.db.
+
+    Every row in screener_picks (Flash finalist or Pro-verdict finalist) becomes one
+    signal. Flash-only rows (stage_reached='flash') get a fixed weak-bullish score via
+    score_signal(); Pro rows (stage_reached='pro') are scored from boom_potential +
+    conviction. See score_signal()'s "screener" branch for the exact mapping.
+
+    Parameters
+    ----------
+    tickers   : List of uppercase ticker strings.
+    date_from : Start date (inclusive).
+    date_to   : End date (inclusive).
+
+    Returns
+    -------
+    List of signal dicts with keys: ticker, signal_date, signal_type, direction,
+    score, source_db, raw_json.
+    """
+    tickers_upper = [t.upper() for t in tickers]
+    if not tickers_upper:
+        return []
+    placeholders = ",".join("?" for _ in tickers_upper)
+
+    conn = _screener_conn()
+    try:
+        rows = conn.execute(
+            f"""
+            SELECT ticker, boom_score, stage_reached, boom_potential, conviction, picked_at
+            FROM screener_picks
+            WHERE ticker IN ({placeholders})
+            ORDER BY picked_at ASC
+            """,
+            tickers_upper,
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return []
+    finally:
+        conn.close()
+
+    signals = []
+    for row in rows:
+        row_dict = dict(row)
+        d = _parse_date(row_dict.get("picked_at", ""))
+        if not _date_in_range(d, date_from, date_to):
+            continue
+
+        raw = {
+            "stage_reached": row_dict.get("stage_reached", "flash"),
+            "boom_potential": row_dict.get("boom_potential"),
+            "conviction": row_dict.get("conviction"),
+        }
+        sc = score_signal("screener", raw)
+        signals.append({
+            "ticker":      row_dict["ticker"].upper(),
+            "signal_date": d,
+            "signal_type": "screener",
+            "direction":   _direction_from_score(sc),
+            "score":       sc,
+            "source_db":   "screener.db/screener_picks",
+            "raw_json":    json.dumps(raw),
+        })
 
     return signals

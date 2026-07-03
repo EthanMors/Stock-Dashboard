@@ -101,3 +101,43 @@ def get_batch_history(tickers: tuple, period: str = "1y") -> pd.DataFrame:
         return close_df
     except Exception:
         return pd.DataFrame()
+
+
+@st.cache_data(ttl=3600)
+def get_next_earnings_date(ticker: str) -> str | None:
+    """Return the next upcoming earnings date as 'YYYY-MM-DD', or None if unknown/past.
+
+    Uses yfinance's get_earnings_dates(), which returns both past and future dates;
+    this filters to the earliest date that is still in the future (or today).
+    """
+    try:
+        stock = yf.Ticker(ticker)
+        df = stock.get_earnings_dates(limit=8)
+        if df is None or df.empty:
+            return None
+        now = pd.Timestamp.now(tz=df.index.tz) if df.index.tz is not None else pd.Timestamp.now()
+        future = df[df.index >= now]
+        if future.empty:
+            return None
+        return future.index.min().strftime("%Y-%m-%d")
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=3600)
+def get_quarterly_income_stmt(ticker: str) -> dict:
+    """Fetch the quarterly income statement as a nested dict {period_str: {line_item: value}}.
+
+    Mirrors get_financials() but uses yfinance's quarterly_income_stmt (columns = quarter-end
+    dates, most recent first) instead of the annual income_stmt.
+    """
+    try:
+        stock = yf.Ticker(ticker)
+        df = stock.quarterly_income_stmt
+        if df is None or df.empty:
+            return {}
+        df = df.copy()
+        df.columns = [str(c) for c in df.columns]
+        return df.to_dict()
+    except Exception:
+        return {}

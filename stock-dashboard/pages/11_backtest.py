@@ -38,6 +38,7 @@ _ALL_SIGNAL_TYPES = [
     "macro",
     "mpt",
     "technical",
+    "screener",
 ]
 
 _SIGNAL_LABELS = {
@@ -48,6 +49,7 @@ _SIGNAL_LABELS = {
     "macro":       "Macro News",
     "mpt":         "MPT Analysis",
     "technical":   "Technical Patterns",
+    "screener":    "AI Screener Picks",
     "SPY":         "SPY Benchmark",
 }
 
@@ -66,6 +68,7 @@ _EQUITY_COLORS = {
     "macro":       "#F44336",
     "mpt":         "#00BCD4",
     "technical":   "#8BC34A",
+    "screener":    "#E91E63",
     "SPY":         "#607D8B",
 }
 

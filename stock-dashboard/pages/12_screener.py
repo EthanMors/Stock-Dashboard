@@ -11,11 +11,14 @@ import streamlit as st
 
 from components.gemini_usage_bar import render_gemini_usage_bar
 from components.ui import inject_global_css, page_header, render_sidebar_nav, section_header
-from data import screener_agent
+from data import screener_agent, screener_cache
+from data.fetcher import get_batch_history
 from data.screener_agent import (
     INDUSTRY_POOLS,
+    REDDIT_TRENDING_LABEL,
     DEFAULT_WEIGHTS,
     compute_quant_scores,
+    get_reddit_trending_pool,
     rank_catalysts_flash,
     deep_dive_pro,
     analyze_portfolio_fit,
@@ -36,6 +39,8 @@ _DEFAULTS = {
     "scr_flash": None,        # Stage 2 result
     "scr_pro": None,          # Stage 3 result
     "scr_fit": {},            # {ticker: portfolio-fit result}
+    "scr_run_id": None,       # screener_cache.save_run() id for the current scr_scores run
+    "scr_flash_saved": False, # whether Stage-2 finalists were already saved to screener.db
 }
 for _k, _v in _DEFAULTS.items():
     if _k not in st.session_state:
@@ -71,11 +76,17 @@ def _load_webull_holdings() -> list[str]:
         return []
 
 
-def _normalize_weights(g: int, m: int, a: int, h: int) -> dict:
-    total = g + m + a + h
+def _normalize_weights(g: int, m: int, a: int, h: int, sm: int) -> dict:
+    total = g + m + a + h + sm
     if total == 0:
         return DEFAULT_WEIGHTS
-    return {"growth": g / total, "momentum": m / total, "analyst": a / total, "hype": h / total}
+    return {
+        "growth": g / total,
+        "momentum": m / total,
+        "analyst": a / total,
+        "hype": h / total,
+        "smart_money": sm / total,
+    }
 
 
 _IMPACT_COLOR = {
@@ -94,7 +105,8 @@ _FIT_COLOR = {
 def _render_sidebar() -> dict:
     with st.sidebar:
         st.markdown("### 🔍 Screener Controls")
-        industry = st.radio("Industry pool", list(INDUSTRY_POOLS.keys()), key="scr_pool")
+        industry_options = list(INDUSTRY_POOLS.keys()) + [REDDIT_TRENDING_LABEL]
+        industry = st.radio("Industry pool", industry_options, key="scr_pool")
 
         custom_raw = st.text_input(
             "Add custom tickers (comma-separated)", key="scr_custom",
@@ -103,10 +115,11 @@ def _render_sidebar() -> dict:
 
         st.markdown("#### Boom-score weights")
         st.caption("How much each factor drives the Stage-1 rank.")
-        w_growth = st.slider("Growth & quality", 0, 100, 30, key="w_growth")
-        w_mom = st.slider("Momentum", 0, 100, 30, key="w_mom")
-        w_analyst = st.slider("Analyst upside", 0, 100, 20, key="w_analyst")
-        w_hype = st.slider("Squeeze / hype", 0, 100, 20, key="w_hype")
+        w_growth = st.slider("Growth & quality", 0, 100, 25, key="w_growth")
+        w_mom = st.slider("Momentum", 0, 100, 25, key="w_mom")
+        w_analyst = st.slider("Analyst upside", 0, 100, 15, key="w_analyst")
+        w_hype = st.slider("Squeeze / hype", 0, 100, 15, key="w_hype")
+        w_smart = st.slider("Smart money (13F)", 0, 100, 20, key="w_smart")
 
         run = st.button("🚀 Run Screen", use_container_width=True, type="primary")
 
@@ -117,7 +130,7 @@ def _render_sidebar() -> dict:
         )
 
     custom = [t.strip().upper() for t in custom_raw.split(",") if t.strip()]
-    weights = _normalize_weights(w_growth, w_mom, w_analyst, w_hype)
+    weights = _normalize_weights(w_growth, w_mom, w_analyst, w_hype, w_smart)
     return {"industry": industry, "custom": custom, "weights": weights, "run": run}
 
 
@@ -127,11 +140,15 @@ def _render_sidebar() -> dict:
 
 def _render_leaderboard(scores: list[dict]) -> None:
     section_header("Stage 1 · Quantitative Boom Leaderboard")
-    st.caption("Pure-Python multi-factor rank. The top 5 (highlighted) advance to the Gemini stages.")
+    st.caption(
+        "Pure-Python multi-factor rank. The top 5 (highlighted) advance to the Gemini stages "
+        "and get an options put/call-ratio readout."
+    )
 
     rows = []
     for i, r in enumerate(scores):
         f = r["factors"]
+        pos = r.get("positioning") or {}
         rows.append({
             "Rank": i + 1,
             "Ticker": r["ticker"],
@@ -140,11 +157,13 @@ def _render_leaderboard(scores: list[dict]) -> None:
             "Momentum": r["subscores"]["momentum"],
             "Analyst": r["subscores"]["analyst"],
             "Hype": r["subscores"]["hype"],
+            "SmartMoney": r["subscores"]["smart_money"],
             "RevGr%": f["rev_growth_pct"],
-            "Ret6m%": f["ret_6m_pct"],
+            "Ret6m(rel)%": f["ret_6m_rel_pct"],
             "%52wHi": f["pct_of_52w_high"],
             "Upside%": f["analyst_upside_pct"],
             "Short%": f["short_pct_float"],
+            "Put/Call": pos.get("put_call_ratio"),
         })
     df = pd.DataFrame(rows)
 
@@ -167,6 +186,7 @@ def _render_catalyst(industry: str, scores: list[dict]) -> None:
         with st.spinner("Gemini Flash ranking top catalyst plays…"):
             st.session_state.scr_flash = rank_catalysts_flash(industry, scores[:5])
         st.session_state.scr_pro = None  # finalists may have changed
+        st.session_state.scr_flash_saved = False
 
     result = st.session_state.scr_flash
     if result is None:
@@ -175,6 +195,27 @@ def _render_catalyst(industry: str, scores: list[dict]) -> None:
     if "_error" in result:
         st.error(result["_error"])
         return
+
+    # Persist Flash finalists to the picks tracker (once per Flash result).
+    if not st.session_state.scr_flash_saved and st.session_state.scr_run_id:
+        by_ticker = {r["ticker"]: r for r in scores}
+        for item in result.get("ranked", []):
+            ticker = item.get("ticker", "")
+            row = by_ticker.get(ticker)
+            if row is None:
+                continue
+            screener_cache.save_pick(
+                run_id=st.session_state.scr_run_id,
+                ticker=ticker,
+                industry=industry,
+                boom_score=row.get("boom_score"),
+                stage_reached="flash",
+                boom_potential=None,
+                conviction=None,
+                entry_price=row.get("price"),
+                alert_price=None,
+            )
+        st.session_state.scr_flash_saved = True
 
     for item in result.get("ranked", []):
         ticker = item.get("ticker", "?")
@@ -228,6 +269,26 @@ def _render_deep_dive(industry: str, scores: list[dict]) -> None:
     if "_error" in result:
         st.error(result["_error"])
         return
+
+    # Persist Pro verdicts to the picks tracker.
+    if st.session_state.scr_run_id:
+        by_ticker = {r["ticker"]: r for r in scores}
+        for v in result.get("verdicts", []):
+            ticker = v.get("ticker", "")
+            row = by_ticker.get(ticker)
+            if row is None:
+                continue
+            screener_cache.save_pick(
+                run_id=st.session_state.scr_run_id,
+                ticker=ticker,
+                industry=industry,
+                boom_score=row.get("boom_score"),
+                stage_reached="pro",
+                boom_potential=v.get("boom_potential"),
+                conviction=v.get("conviction"),
+                entry_price=row.get("price"),
+                alert_price=v.get("alert_price"),
+            )
 
     for v in result.get("verdicts", []):
         ticker = v.get("ticker", "?")
@@ -383,6 +444,81 @@ def _render_fit(scores: list[dict]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Tab 5 — Picks Tracker
+# ---------------------------------------------------------------------------
+
+def _render_picks_tracker() -> None:
+    section_header("Picks Tracker · Historical Screener Hit-Rate")
+    st.caption(
+        "Every Flash/Pro finalist from every run is recorded here with its price at pick "
+        "time. Use this to see whether the screener's picks actually work over time."
+    )
+
+    picks = screener_cache.get_all_picks(limit=200)
+    if not picks:
+        st.info(
+            "No picks recorded yet. Run a screen and advance a candidate to the "
+            "Catalyst (Flash) or Deep-Dive (Pro) stage to start tracking."
+        )
+        return
+
+    unique_tickers = sorted({p["ticker"] for p in picks})
+    try:
+        hist = get_batch_history(tuple(unique_tickers), period="5d")
+    except Exception:
+        hist = pd.DataFrame()
+
+    last_price: dict[str, float] = {}
+    if hist is not None and not hist.empty:
+        for t in unique_tickers:
+            if t in hist.columns:
+                series = hist[t].dropna()
+                if not series.empty:
+                    last_price[t] = float(series.iloc[-1])
+
+    rows = []
+    returns = []
+    for p in picks:
+        ticker = p["ticker"]
+        entry = p.get("entry_price")
+        now_price = last_price.get(ticker)
+        pct_return = None
+        if entry and now_price:
+            pct_return = (now_price / entry - 1.0) * 100.0
+            returns.append(pct_return)
+        rows.append({
+            "Ticker": ticker,
+            "Industry": p.get("industry", ""),
+            "Picked At": str(p.get("picked_at", ""))[:10],
+            "Stage": p.get("stage_reached", ""),
+            "Boom Score": p.get("boom_score"),
+            "Boom Potential": p.get("boom_potential") or "—",
+            "Conviction": p.get("conviction") or "—",
+            "Entry Price": entry,
+            "Price Now": now_price,
+            "% Return": round(pct_return, 2) if pct_return is not None else None,
+            "Alert Price": p.get("alert_price"),
+        })
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.metric("Total Picks Recorded", len(picks))
+    with c2:
+        hit_rate = (sum(1 for r in returns if r > 0) / len(returns) * 100.0) if returns else None
+        st.metric("Positive-Return Hit Rate", f"{hit_rate:.1f}%" if hit_rate is not None else "N/A")
+    with c3:
+        avg_return = (sum(returns) / len(returns)) if returns else None
+        st.metric("Avg Return Since Pick", f"{avg_return:.2f}%" if avg_return is not None else "N/A")
+
+    df = pd.DataFrame(rows)
+    st.dataframe(
+        df.style.format(precision=2, na_rep="—"),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Page entry
 # ---------------------------------------------------------------------------
 
@@ -395,12 +531,25 @@ page_header(
 _ctrl = _render_sidebar()
 
 if _ctrl["run"]:
-    universe = list(dict.fromkeys(INDUSTRY_POOLS[_ctrl["industry"]] + _ctrl["custom"]))
-    with st.spinner(f"Scoring {len(universe)} {_ctrl['industry']} names…"):
-        st.session_state.scr_scores = compute_quant_scores(universe, _ctrl["weights"])
-    st.session_state.scr_industry = _ctrl["industry"]
-    st.session_state.scr_flash = None
-    st.session_state.scr_pro = None
+    if _ctrl["industry"] == REDDIT_TRENDING_LABEL:
+        universe = list(dict.fromkeys(get_reddit_trending_pool(20) + _ctrl["custom"]))
+        if not universe:
+            st.warning(
+                "No Reddit-trending tickers found in the last 7 days. Visit the "
+                "Social Sentiment page and refresh daily mentions first, or pick a "
+                "different industry pool."
+            )
+    else:
+        universe = list(dict.fromkeys(INDUSTRY_POOLS[_ctrl["industry"]] + _ctrl["custom"]))
+
+    if universe:
+        with st.spinner(f"Scoring {len(universe)} {_ctrl['industry']} names…"):
+            st.session_state.scr_scores = compute_quant_scores(universe, _ctrl["weights"])
+        st.session_state.scr_industry = _ctrl["industry"]
+        st.session_state.scr_flash = None
+        st.session_state.scr_pro = None
+        st.session_state.scr_run_id = screener_cache.save_run(_ctrl["industry"], _ctrl["weights"])
+        st.session_state.scr_flash_saved = False
 
 _scores = st.session_state.scr_scores
 if not _scores:
@@ -409,8 +558,9 @@ if not _scores:
 
 st.caption(f"Showing screen for **{st.session_state.scr_industry}** · {len(_scores)} names scored.")
 
-_tab_lead, _tab_cat, _tab_deep, _tab_fit = st.tabs([
+_tab_lead, _tab_cat, _tab_deep, _tab_fit, _tab_tracker = st.tabs([
     "📊 Leaderboard", "🤖 Catalyst (Flash)", "🏦 Deep-Dive (Pro)", "🧩 Portfolio Fit",
+    "📈 Picks Tracker",
 ])
 with _tab_lead:
     _render_leaderboard(_scores)
@@ -420,3 +570,5 @@ with _tab_deep:
     _render_deep_dive(st.session_state.scr_industry, _scores)
 with _tab_fit:
     _render_fit(_scores)
+with _tab_tracker:
+    _render_picks_tracker()
