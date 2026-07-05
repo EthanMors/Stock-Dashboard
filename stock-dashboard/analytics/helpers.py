@@ -248,7 +248,10 @@ def mid_iv(
     """
     # Try to get bid/ask IVs (yfinance doesn't directly expose these,
     # so we fall back to impliedVolatility which is market-derived)
+    # clean_chain() lowercases column names, so check both casings.
     implied_vol = row.get('impliedVolatility')
+    if implied_vol is None:
+        implied_vol = row.get('impliedvolatility')
 
     if pd.isna(implied_vol) or implied_vol == 0:
         return None, 'missing'

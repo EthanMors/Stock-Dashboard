@@ -511,6 +511,119 @@ def is_mpt_analysis_fresh(analyzed_at_str: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Covered Options Analysis cache helpers
+# ---------------------------------------------------------------------------
+
+_COVERED_OPTIONS_TTL_HOURS = 24  # cached roundtable analysis is fresh for 24h
+
+
+def save_covered_options_analysis(
+    ticker: str,
+    chain_snapshot_date: str,
+    spot_price: float,
+    result_dict: dict,
+    context_dict: dict,
+) -> None:
+    """Persist a covered-options roundtable analysis for *ticker*.
+
+    Parameters
+    ----------
+    ticker              : Stock ticker (will be uppercased).
+    chain_snapshot_date : "YYYY-MM-DD" — the date the option chain was pulled.
+    spot_price           : Spot price at analysis time.
+    result_dict          : The dict returned by
+                            covered_options_agent.run_covered_options_roundtable().
+                            Must contain keys: classification, classification_reason,
+                            verdict, verdict_reason, recommended_contracts,
+                            education, discussion.
+    context_dict         : The pre-computed Python context dict (technical snapshot,
+                            candidate chain, iv metrics) so the UI can redisplay it
+                            without re-fetching from yfinance.
+    """
+    ticker = ticker.upper()
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    conn = _get_connection()
+    try:
+        conn.execute(
+            """
+            INSERT INTO covered_options_analysis (
+                ticker, chain_snapshot_date, spot_price,
+                classification, classification_reason,
+                verdict, verdict_reason,
+                recommended_contracts_json, education_json,
+                discussion_json, context_json, analyzed_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                ticker,
+                chain_snapshot_date,
+                spot_price,
+                result_dict.get("classification"),
+                result_dict.get("classification_reason"),
+                result_dict.get("verdict"),
+                result_dict.get("verdict_reason"),
+                json.dumps(result_dict.get("recommended_contracts", [])),
+                json.dumps(result_dict.get("education", {})),
+                json.dumps(result_dict.get("discussion", {})),
+                json.dumps(context_dict or {}),
+                now_iso,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_latest_covered_options_analysis(ticker: str) -> Optional[dict]:
+    """Return the most recent covered-options analysis row for *ticker*, or None.
+
+    Returned dict keys: ticker, chain_snapshot_date, spot_price, classification,
+    classification_reason, verdict, verdict_reason,
+    recommended_contracts (list, deserialized), education (dict, deserialized),
+    discussion (dict, deserialized), context (dict, deserialized), analyzed_at.
+    """
+    conn = _get_connection()
+    try:
+        row = conn.execute(
+            """
+            SELECT * FROM covered_options_analysis
+            WHERE  ticker = ?
+            ORDER  BY analyzed_at DESC
+            LIMIT  1
+            """,
+            (ticker.upper(),),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if row is None:
+        return None
+
+    data = dict(row)
+    for json_field, out_field in (
+        ("recommended_contracts_json", "recommended_contracts"),
+        ("education_json", "education"),
+        ("discussion_json", "discussion"),
+        ("context_json", "context"),
+    ):
+        raw = data.pop(json_field, None) or ("[]" if out_field == "recommended_contracts" else "{}")
+        try:
+            data[out_field] = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            data[out_field] = [] if out_field == "recommended_contracts" else {}
+    return data
+
+
+def is_covered_options_analysis_fresh(analyzed_at_str: str) -> bool:
+    """Return True if *analyzed_at_str* (UTC ISO) is within _COVERED_OPTIONS_TTL_HOURS."""
+    try:
+        analyzed_at = datetime.fromisoformat(analyzed_at_str).replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) - analyzed_at < timedelta(hours=_COVERED_OPTIONS_TTL_HOURS)
+    except (ValueError, TypeError):
+        return False
+
+
+# ---------------------------------------------------------------------------
 # Initialize DB tables on import
 # ---------------------------------------------------------------------------
 init_db()

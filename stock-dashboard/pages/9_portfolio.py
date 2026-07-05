@@ -54,6 +54,18 @@ from data.portfolio_insights_agent import run_portfolio_insights
 from data import fred_fetcher
 from data.macro_impact_agent import run_macro_impact_analysis
 from data.fetcher import get_batch_history
+from data.covered_options_agent import (
+    NEAR_ELIGIBLE_MIN_SHARES,
+    find_covered_call_eligible_positions,
+    find_near_eligible_positions,
+    assess_strategy_capabilities,
+    run_covered_options_roundtable,
+)
+from data.portfolio_cache import (
+    save_covered_options_analysis,
+    get_latest_covered_options_analysis,
+    is_covered_options_analysis_fresh,
+)
 
 st.set_page_config(page_title="Portfolio", layout="wide")
 
@@ -3425,6 +3437,7 @@ if "hf_analysis"     not in st.session_state: st.session_state.hf_analysis     =
 if "mpt_analysis"    not in st.session_state: st.session_state.mpt_analysis    = None
 if "ai_insights"     not in st.session_state: st.session_state.ai_insights     = None
 if "macro_impact"    not in st.session_state: st.session_state.macro_impact    = None
+if "covered_options_results" not in st.session_state: st.session_state.covered_options_results = {}
 
 if not tickers:
     st.warning("Could not extract ticker symbols from position data.")
@@ -4411,6 +4424,246 @@ with _tab_dash:
                     )
         else:
             st.caption("Run MPT Analysis via ⚡ Analyze Everything or the ⚡ Options & MPT tab.")
+
+    # ── Covered Options Strategy Desk ──────────────────────────────────────────
+    st.markdown("---")
+    section_header("Covered Options Strategy Desk")
+    st.caption(
+        "Positions with 100+ shares can support covered calls. Pick a stock (or run all) for a "
+        "4-persona AI roundtable — Macro Strategist, Equity Analyst, Technical Analyst, and Options "
+        "Strategist — moderated to a final verdict on whether and how to sell options against it."
+    )
+
+    _eligible_positions = find_covered_call_eligible_positions(positions_result)
+    _near_eligible_positions = find_near_eligible_positions(positions_result)
+
+    def _render_near_eligible_section() -> None:
+        """Render the 'Almost There' near-eligible table. No-op if the list is empty."""
+        if not _near_eligible_positions:
+            return
+        st.markdown("**Almost There — Building Toward a Full Lot**")
+        st.caption(
+            f"Positions with {NEAR_ELIGIBLE_MIN_SHARES}-99 shares are close to covered-call "
+            "eligibility (100+ shares needed). Here's what it would cost to complete the lot "
+            "at today's price."
+        )
+        _near_rows = [
+            {
+                "Ticker": p["ticker"],
+                "Current Shares": f"{p['shares']:.0f}",
+                "Shares Needed": f"{p['shares_needed']:.0f}",
+                "Current Price": f"${p['current_price']:.2f}",
+                "Est. Cost to Complete Lot": f"${p['cost_to_complete']:,.2f}",
+            }
+            for p in _near_eligible_positions
+        ]
+        st.dataframe(pd.DataFrame(_near_rows), use_container_width=True, hide_index=True)
+
+    if not _eligible_positions:
+        st.info("No positions with 100+ shares were found — covered calls require at least one full lot (100 shares).")
+        _render_near_eligible_section()
+    else:
+        _elig_rows = [
+            {
+                "Ticker": p["ticker"],
+                "Shares": f"{p['shares']:.0f}",
+                "Lots (100sh)": p["lots"],
+                "Cost Basis": f"${p['cost_basis']:.2f}",
+                "Current Price": f"${p['current_price']:.2f}",
+                "Unrealized P/L": f"${p['unrealized_pl']:+,.2f} ({p['unrealized_pl_pct']:+.1f}%)",
+            }
+            for p in _eligible_positions
+        ]
+        st.dataframe(pd.DataFrame(_elig_rows), use_container_width=True, hide_index=True)
+        _render_near_eligible_section()
+
+        _cod_col_a, _cod_col_b, _cod_col_c = st.columns([3, 2, 2])
+        with _cod_col_a:
+            _cod_ticker_options = ["— Select a stock —"] + [p["ticker"] for p in _eligible_positions]
+            _cod_selected_ticker = st.selectbox(
+                "Run roundtable for", _cod_ticker_options, key="covered_opt_ticker_select"
+            )
+        with _cod_col_b:
+            _cod_run_single = st.button(
+                "▶ Run Roundtable", use_container_width=True, key="covered_opt_run_single_btn",
+                disabled=(_cod_selected_ticker == "— Select a stock —"),
+            )
+        with _cod_col_c:
+            _cod_run_all = st.button(
+                "⚡ Analyze All Eligible", use_container_width=True, key="covered_opt_run_all_btn"
+            )
+
+        def _run_one_covered_options(ticker: str, position: dict, force: bool = False) -> None:
+            cached_db = get_latest_covered_options_analysis(ticker)
+            if not force and cached_db is not None and is_covered_options_analysis_fresh(cached_db.get("analyzed_at", "")):
+                st.session_state.covered_options_results[ticker] = {**cached_db, "from_db": True}
+                return
+            macro_dict = fred_fetcher.get_macro_indicators() if fred_fetcher.is_configured() else {}
+            cached_news = st.session_state.news_results.get(ticker)
+            result = run_covered_options_roundtable(ticker, position, macro_dict, cached_news)
+            if result and "_error" not in result:
+                today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                save_covered_options_analysis(
+                    ticker, today_str, position.get("current_price", 0.0), result, result.get("context", {})
+                )
+            analyzed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+            st.session_state.covered_options_results[ticker] = {**(result or {}), "analyzed_at": analyzed_at, "from_db": False}
+
+        if _cod_run_single and _cod_selected_ticker != "— Select a stock —":
+            _cod_pos = next((p for p in _eligible_positions if p["ticker"] == _cod_selected_ticker), None)
+            if _cod_pos is not None:
+                with st.status(f"Running covered options roundtable for {_cod_selected_ticker}…", expanded=True) as _cod_status:
+                    st.write("1/3 — Gathering technical snapshot & option chain…")
+                    st.write("2/3 — Running 4-persona opinion + rebuttal rounds (Gemini Flash)…")
+                    st.write("3/3 — Moderator synthesizing final verdict (Gemini Pro)…")
+                    _run_one_covered_options(_cod_selected_ticker, _cod_pos, force=True)
+                    _cod_status.update(label=f"Roundtable complete for {_cod_selected_ticker}", state="complete")
+                st.rerun()
+
+        if _cod_run_all:
+            _cod_progress = st.progress(0, text="Starting covered options roundtables…")
+            for _i, _p in enumerate(_eligible_positions):
+                _cod_progress.progress(
+                    _i / len(_eligible_positions),
+                    text=f"Analyzing {_p['ticker']} ({_i + 1}/{len(_eligible_positions)})…",
+                )
+                _run_one_covered_options(_p["ticker"], _p, force=False)
+            _cod_progress.progress(1.0, text="All eligible positions analyzed.")
+            time.sleep(0.4)
+            _cod_progress.empty()
+            st.rerun()
+
+        _COD_VERDICT_COLOR = {
+            "sell_covered_call": "#00c853", "sell_cash_secured_put": "#00c853",
+            "wheel_candidate": "#00c853", "wait_until_after_earnings": "#ffd600",
+            "no_iv_too_low": "#ff9100", "no_too_cheap_to_cap": "#ff9100",
+            "hold_no_options": "#ff1744",
+        }
+
+        for _p in _eligible_positions:
+            _t = _p["ticker"]
+            _entry = st.session_state.covered_options_results.get(_t)
+            if _entry is None:
+                continue
+            if "_error" in _entry:
+                with st.expander(f"**{_t}** — Analysis failed", expanded=False):
+                    st.error(_entry["_error"])
+                continue
+
+            _verdict = _entry.get("verdict", "hold_no_options")
+            _vcolor = _COD_VERDICT_COLOR.get(_verdict, "#aaa")
+            _cache_tag = " · cached" if _entry.get("from_db") else ""
+            with st.expander(
+                f"**{_t}** — {_verdict.replace('_', ' ').title()}{_cache_tag}", expanded=False
+            ):
+                st.markdown(
+                    f'<div style="background:{_vcolor}22;border-left:4px solid {_vcolor};border-radius:6px;'
+                    f'padding:10px 16px;margin-bottom:10px">'
+                    f'<strong style="color:{_vcolor};font-size:1.1rem">{_verdict.replace("_", " ").upper()}</strong>'
+                    f'<br><span style="color:#ccc;font-size:0.9rem">{_entry.get("verdict_reason", "")}</span>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+
+                _class = _entry.get("classification", "")
+                st.caption(f"Classification: **{_class.replace('_', ' ').title()}** — {_entry.get('classification_reason', '')}")
+
+                _recs = _entry.get("recommended_contracts", [])
+                if _recs:
+                    st.markdown("**Recommended Contract(s):**")
+                    _rec_rows = [
+                        {
+                            "Type": r.get("type", "").replace("_", " ").title(),
+                            "Strike": f"${r.get('strike', 0):.2f}",
+                            "Expiry": r.get("expiry", ""),
+                            "DTE": r.get("dte", ""),
+                            "Premium (mid)": f"${r.get('mid_premium', 0):.2f}",
+                            "Ann. Yield %": f"{r.get('annualized_yield_pct', 0):.2f}%",
+                            "Cushion %": f"{r.get('downside_cushion_pct', 0):.2f}%",
+                            "Max Profit/sh": f"${r.get('max_profit_per_share', 0):.2f}",
+                            "Breakeven": f"${r.get('breakeven_price', 0):.2f}",
+                        }
+                        for r in _recs
+                    ]
+                    st.dataframe(pd.DataFrame(_rec_rows), use_container_width=True, hide_index=True)
+                    for r in _recs:
+                        if r.get("rationale"):
+                            st.caption(f"• {r.get('rationale')}")
+                else:
+                    st.info("No specific contract recommended — see verdict above.")
+
+                _edu = _entry.get("education", {})
+                if _edu:
+                    with st.expander("📘 Strategy Education", expanded=False):
+                        if _edu.get("how_it_works"):
+                            st.markdown(f"**How it works:** {_edu['how_it_works']}")
+                        if _edu.get("max_profit"):
+                            st.markdown(f"**Max profit:** {_edu['max_profit']}")
+                        if _edu.get("breakeven"):
+                            st.markdown(f"**Breakeven:** {_edu['breakeven']}")
+                        if _edu.get("when_it_wins"):
+                            st.markdown(f"**When it wins:** {_edu['when_it_wins']}")
+                        if _edu.get("when_it_loses"):
+                            st.markdown(f"**When it loses:** {_edu['when_it_loses']}")
+
+                if _entry.get("moderator_summary"):
+                    st.markdown(
+                        f'<div style="background:#1a1a2e;border-left:4px solid {_vcolor};'
+                        f'border-radius:6px;padding:14px 18px;margin-top:10px">'
+                        f'<p style="color:#ddd;font-size:0.92rem;margin:0;line-height:1.6">{_entry["moderator_summary"]}</p>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+
+                _discussion = _entry.get("discussion", {})
+                if _discussion:
+                    with st.expander("🗣️ Full Agent Discussion Transcript", expanded=False):
+                        _r1p = _discussion.get("round1_parsed", {})
+                        st.markdown("**Round 1 — Opinions**")
+                        st.markdown(f"- **Macro Strategist:** {_r1p.get('macro', {}).get('opinion', 'N/A')}")
+                        st.markdown(f"- **Equity Analyst:** {_r1p.get('equity', {}).get('opinion', 'N/A')}")
+                        st.markdown(f"- **Technical Analyst:** {_r1p.get('technical', {}).get('opinion', 'N/A')}")
+                        st.markdown(f"- **Options Strategist:** {_r1p.get('options', {}).get('opinion', 'N/A')}")
+                        _r2p = _discussion.get("round2_parsed", {})
+                        st.markdown("**Round 2 — Rebuttals**")
+                        st.markdown(f"- **Macro Strategist:** {_r2p.get('macro_strategist_rebuttal', 'N/A')}")
+                        st.markdown(f"- **Equity Analyst:** {_r2p.get('equity_analyst_rebuttal', 'N/A')}")
+                        st.markdown(f"- **Technical Analyst:** {_r2p.get('technical_analyst_rebuttal', 'N/A')}")
+                        st.markdown(f"- **Options Strategist:** {_r2p.get('options_strategist_rebuttal', 'N/A')}")
+                        st.markdown("**Round 3 — Moderator Verdict (raw)**")
+                        st.code(_discussion.get("round3_raw", ""), language="json")
+
+                if st.button(f"🔄 Refresh analysis for {_t}", key=f"covered_opt_refresh_{_t}"):
+                    with st.status(f"Refreshing covered options roundtable for {_t}…", expanded=True):
+                        _run_one_covered_options(_t, _p, force=True)
+                    st.rerun()
+
+    # ── What Your Account Can Do Right Now (cash-based capability panel) ──────
+    st.markdown("---")
+    st.markdown("**What Your Account Can Do Right Now**")
+    if _cash is None:
+        _cod_cash_available = 0.0
+        st.caption("Cash balance unavailable for this account — treating available cash as $0.00 below.")
+    else:
+        _cod_cash_available = _cash
+
+    _cod_caps = assess_strategy_capabilities(_cod_cash_available, _eligible_positions, _near_eligible_positions)
+
+    _cap_col1, _cap_col2, _cap_col3, _cap_col4, _cap_col5 = st.columns(5)
+    with _cap_col1:
+        st.metric("Available Cash", f"${_cod_caps['cash']:,.2f}")
+    with _cap_col2:
+        st.markdown(f"{'✅' if _cod_caps['can_covered_call'] else '❌'}  **Covered Call**")
+    with _cap_col3:
+        st.markdown(f"{'✅' if _cod_caps['can_cash_secured_put'] else '❌'}  **Cash-Secured Put**")
+    with _cap_col4:
+        st.markdown(f"{'✅' if _cod_caps['can_collar'] else '❌'}  **Collar**")
+    with _cap_col5:
+        st.markdown(f"{'✅' if _cod_caps['can_wheel'] else '❌'}  **Wheel**")
+
+    for _cod_note in _cod_caps["notes"]:
+        # Escape $ so Streamlit markdown doesn't treat "$X ... $Y" as inline LaTeX.
+        st.caption(f"• {_cod_note}".replace("$", "\\$"))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

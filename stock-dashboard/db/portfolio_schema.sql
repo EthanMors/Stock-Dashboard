@@ -78,3 +78,25 @@ CREATE TABLE IF NOT EXISTS mpt_analysis (
 
 CREATE INDEX IF NOT EXISTS idx_mpta_ticker_key
     ON mpt_analysis (ticker_key, analyzed_at);
+
+CREATE TABLE IF NOT EXISTS covered_options_analysis (
+    id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker                      TEXT NOT NULL,
+    chain_snapshot_date         TEXT NOT NULL,
+    spot_price                  REAL,
+    classification              TEXT,
+    classification_reason       TEXT,
+    verdict                     TEXT,
+    verdict_reason              TEXT,
+    recommended_contracts_json  TEXT,
+    education_json              TEXT,
+    discussion_json              TEXT,
+    context_json                 TEXT,
+    analyzed_at                  TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_coa_ticker
+    ON covered_options_analysis (ticker);
+
+CREATE INDEX IF NOT EXISTS idx_coa_lookup
+    ON covered_options_analysis (ticker, chain_snapshot_date, analyzed_at);

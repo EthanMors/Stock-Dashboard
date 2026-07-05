@@ -1,0 +1,2 @@
+- [Portfolio page structure](portfolio_page_structure.md) — tab layout, cash source (`_cash`), covered_options_agent.py conventions
+- [Covered options desk extension plan](covered_options_desk_extension_plan.md) — pointer to plan_near_eligible_cash.md (2026-07-05), verify before reuse
