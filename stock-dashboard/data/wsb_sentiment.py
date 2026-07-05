@@ -48,21 +48,15 @@ Respond ONLY with a JSON object:
 """
 
 
-def _run_gemini(prompt: str) -> str:
-    """Call the Gemini CLI and return stdout. Returns empty string on any failure.
-
-    Prompt is passed via stdin rather than as a -p argument to avoid cmd.exe
-    interpreting angle brackets (<positive|negative|neutral>) as I/O redirects,
-    which silently produced empty output and rc=255.
-    The empty -p "" flag keeps the CLI in headless (non-interactive) mode.
-    """
+def _run_gemini(prompt: str) -> tuple[str, str]:
+    """Call the Gemini CLI. Returns (stdout, error_message)."""
     try:
-        output, _ = run_agy(prompt, model=None, timeout=60)
+        output, err = run_agy(prompt, model=None, timeout=60)
         if output:
             record_call("flash")
-        return output
-    except Exception:
-        return ""
+        return output, err
+    except Exception as exc:
+        return "", str(exc)
 
 
 def _parse_json_response(raw: str, require_summary: bool = False) -> dict | None:
@@ -89,24 +83,40 @@ def _parse_json_response(raw: str, require_summary: bool = False) -> dict | None
 
 
 def analyze_sentiment(title: str, body: str, ticker: str) -> dict:
-    """Return {"sentiment_score": float, "sentiment_label": str}."""
-    _default = {"sentiment_score": 0.0, "sentiment_label": "neutral"}
+    """Return {"sentiment_score": float, "sentiment_label": str, "analysis_failed": bool}.
+
+    When "analysis_failed" is True the score/label are placeholders and callers
+    must NOT persist them — otherwise a transient Gemini failure gets cached as
+    a genuine neutral reading.
+    """
     prompt = _PROMPT_TEMPLATE.format(
         ticker=ticker.upper(),
         title=title,
         body=body[:2000],
     )
-    raw = _run_gemini(prompt)
-    if not raw:
-        return _default
-    return _parse_json_response(raw) or _default
+    raw, err = _run_gemini(prompt)
+    if raw:
+        parsed = _parse_json_response(raw)
+        if parsed is not None:
+            return {**parsed, "analysis_failed": False}
+    return {
+        "sentiment_score": 0.0,
+        "sentiment_label": "neutral",
+        "analysis_failed": True,
+        "error": err or "Gemini returned an unparseable response",
+    }
 
 
 def analyze_batch_sentiment(posts: list[dict], ticker: str) -> dict:
-    """Analyze a batch of posts together and return aggregate sentiment + summary."""
-    _default = {"sentiment_score": 0.0, "sentiment_label": "neutral", "summary": "", "hype_level": 0}
+    """Analyze a batch of posts together and return aggregate sentiment + summary.
+
+    Sets "analysis_failed": True when the Gemini call failed — callers must not
+    persist such results.
+    """
+    _default = {"sentiment_score": 0.0, "sentiment_label": "neutral", "summary": "",
+                "hype_level": 0, "analysis_failed": True}
     if not posts:
-        return _default
+        return {**_default, "error": "No posts to analyze"}
 
     lines = []
     for i, post in enumerate(posts, start=1):
@@ -124,7 +134,9 @@ def analyze_batch_sentiment(posts: list[dict], ticker: str) -> dict:
         ticker=ticker.upper(),
         posts_block="\n\n".join(lines),
     )
-    raw = _run_gemini(prompt)
-    if not raw:
-        return _default
-    return _parse_json_response(raw, require_summary=True) or _default
+    raw, err = _run_gemini(prompt)
+    if raw:
+        parsed = _parse_json_response(raw, require_summary=True)
+        if parsed is not None:
+            return {**parsed, "analysis_failed": False}
+    return {**_default, "error": err or "Gemini returned an unparseable response"}

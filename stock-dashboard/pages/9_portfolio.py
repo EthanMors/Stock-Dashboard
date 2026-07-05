@@ -1052,46 +1052,67 @@ def _load_reddit_sentiment(ticker: str) -> dict:
                 "error": None,
             }
 
-        posts, subreddits = fetch_top_posts_for_ticker(ticker)
+        posts, subreddits, fetch_error = fetch_top_posts_for_ticker(ticker)
         if not posts:
-            return {**_default, "error": f"No Reddit posts found for {ticker}."}
+            return {**_default, "error": fetch_error or f"No Reddit posts found for {ticker}."}
 
         analyzed_posts: list[dict] = []
         for post in posts:
             try:
                 s = analyze_sentiment(post["title"], post["body"], ticker)
             except Exception:
-                s = {"sentiment_score": 0.0, "sentiment_label": "neutral"}
+                s = {"sentiment_score": 0.0, "sentiment_label": "neutral", "analysis_failed": True}
             full = {
                 **post,
                 "sentiment_score": s["sentiment_score"],
                 "sentiment_label": s["sentiment_label"],
                 "analyzed_at": datetime.now(timezone.utc).isoformat(),
             }
-            _wsb_save_post(full)
+            # Only cache genuine analyses — persisting a failed placeholder
+            # (analyzed_at set, score 0.0) would block any future retry.
+            if not s.get("analysis_failed"):
+                _wsb_save_post(full)
             analyzed_posts.append(full)
 
         try:
             batch = analyze_batch_sentiment(posts, ticker)
         except Exception:
+            batch = {"analysis_failed": True}
+        if batch.get("analysis_failed"):
             scores = [p.get("sentiment_score", 0.0) for p in analyzed_posts]
             avg = sum(scores) / len(scores) if scores else 0.0
             batch = {
                 "sentiment_score": avg,
                 "sentiment_label": "positive" if avg > 0.1 else "negative" if avg < -0.1 else "neutral",
                 "summary": "",
+                "analysis_failed": True,
             }
 
-        _wsb_save_summary(
-            ticker=ticker,
-            subreddits=subreddits,
-            sentiment_score=batch["sentiment_score"],
-            sentiment_label=batch["sentiment_label"],
-            summary=batch.get("summary", ""),
-            post_ids=[p["post_id"] for p in posts],
-        )
+        summary_row: dict | None
+        if batch.get("analysis_failed"):
+            # Show the per-post average this session but don't cache it as a
+            # real Gemini summary.
+            summary_row = {
+                "ticker": ticker.upper(),
+                "subreddits": json.dumps(subreddits),
+                "sentiment_score": batch["sentiment_score"],
+                "sentiment_label": batch["sentiment_label"],
+                "summary": batch.get("summary", ""),
+                "analyzed_at": datetime.now(timezone.utc).isoformat(),
+            }
+        else:
+            _wsb_save_summary(
+                ticker=ticker,
+                subreddits=subreddits,
+                sentiment_score=batch["sentiment_score"],
+                sentiment_label=batch["sentiment_label"],
+                summary=batch.get("summary", ""),
+                post_ids=[p["post_id"] for p in posts],
+            )
+            summary_row = _wsb_get_cached_summary(ticker)
+
         return {
-            "summary_row": _wsb_get_cached_summary(ticker),
+            "summary_row": summary_row,
             "posts": analyzed_posts,
             "from_cache": False,
             "error": None,
@@ -2292,6 +2313,13 @@ def _impact_bar(level: int) -> str:
 
 
 def _render_analysis(ticker: str, result: dict) -> None:
+    if result.get("analysis_failed"):
+        st.error(
+            f"News analysis for **{ticker}** failed: "
+            f"{result.get('error', 'Gemini did not return a usable response')}. "
+            "The result was not cached — run the analysis again to retry."
+        )
+        return
     label = result["sentiment_label"]
     score = result["sentiment_score"]
     color = _sentiment_color(label)
@@ -2383,14 +2411,18 @@ def _run_analysis_for_ticker(ticker: str, previous_analysis: dict | None = None)
             is_fallback = True
 
     result = analyze_articles(scraped, ticker, sector=sector, is_sector_fallback=is_fallback, previous_analysis=previous_analysis)
-    save_analysis(
-        ticker=ticker,
-        result_dict=result,
-        article_count=len(articles),
-        sector=sector,
-        is_fallback=is_fallback,
-        articles=articles,
-    )
+    # Persist only genuine analyses — saving a failed (neutral-placeholder)
+    # result would also mark all current articles as "seen", so the failure
+    # would be served from cache until new articles appear.
+    if not result.get("analysis_failed"):
+        save_analysis(
+            ticker=ticker,
+            result_dict=result,
+            article_count=len(articles),
+            sector=sector,
+            is_fallback=is_fallback,
+            articles=articles,
+        )
     from datetime import datetime, timezone
     analyzed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
     return {
@@ -2418,9 +2450,10 @@ def _load_or_analyze(ticker: str) -> dict:
     """
     ticker = ticker.upper()
 
-    # Layer 1: in-session memoization
-    if ticker in st.session_state.news_results:
-        return st.session_state.news_results[ticker]
+    # Layer 1: in-session memoization (failed entries are retried, not served)
+    _memo = st.session_state.news_results.get(ticker)
+    if _memo is not None and not _memo.get("result", {}).get("analysis_failed"):
+        return _memo
 
     # Layer 2: DB lookup
     cached_db = get_latest_analysis(ticker)
@@ -4459,7 +4492,10 @@ with _tab_news:
             _nfdb = _nc.get("from_db", False)
             _nat  = _nc.get("analyzed_at", "")
             _nct  = " [cached]" if _nfdb else ""
-            with st.expander(f"**{_nt}** — {_nsl} ({_nss:+.2f}){_nct}", expanded=False):
+            _nhdr = (f"**{_nt}** — ⚠ ANALYSIS FAILED"
+                     if _nc["result"].get("analysis_failed")
+                     else f"**{_nt}** — {_nsl} ({_nss:+.2f}){_nct}")
+            with st.expander(_nhdr, expanded=False):
                 if _nfdb and _nat:
                     st.info(f"Cached from {_nat} UTC — no new articles detected.")
                 elif _nat:

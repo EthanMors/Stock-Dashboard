@@ -103,13 +103,7 @@ DEFAULT_WEIGHTS = {
 _WSB_DB_PATH = os.path.join(os.path.dirname(__file__), "..", "db", "wsb.db")
 
 
-def get_reddit_trending_pool(limit: int = 20) -> list[str]:
-    """Return the top `limit` tickers by total WSB mentions over the last 7 days.
-
-    Reads daily_ticker_mentions from wsb.db (populated by pages/8_social.py). Returns
-    an empty list if the DB/table doesn't exist yet or has no rows in the window —
-    callers MUST handle the empty-list case with a UI notice, never assume non-empty.
-    """
+def _read_trending_from_db(limit: int) -> list[str]:
     if not os.path.exists(_WSB_DB_PATH):
         return []
     conn = sqlite3.connect(_WSB_DB_PATH)
@@ -131,6 +125,52 @@ def get_reddit_trending_pool(limit: int = 20) -> list[str]:
     finally:
         conn.close()
     return [r["ticker"].upper() for r in rows]
+
+
+def _save_trending_to_db(top_tickers: list[tuple[str, int]]) -> None:
+    conn = sqlite3.connect(_WSB_DB_PATH)
+    try:
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS daily_ticker_mentions (
+                   date TEXT NOT NULL,
+                   ticker TEXT NOT NULL,
+                   mentions INTEGER DEFAULT 0,
+                   PRIMARY KEY (date, ticker)
+               )"""
+        )
+        today = datetime.now().date().isoformat()
+        for ticker, count in top_tickers:
+            conn.execute(
+                "INSERT OR REPLACE INTO daily_ticker_mentions (date, ticker, mentions) VALUES (?, ?, ?)",
+                (today, ticker, count),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_reddit_trending_pool(limit: int = 20) -> list[str]:
+    """Return the top `limit` tickers by total WSB mentions over the last 7 days.
+
+    Reads daily_ticker_mentions from wsb.db (populated by pages/8_social.py). When
+    the window is empty (e.g. the Reddit page hasn't been visited recently), falls
+    back to a live r/wallstreetbets fetch and caches the result. Returns an empty
+    list only when the DB is empty AND the live fetch fails — callers MUST handle
+    that case with a UI notice, never assume non-empty.
+    """
+    pool = _read_trending_from_db(limit)
+    if pool:
+        return pool
+
+    try:
+        from data.reddit_fetcher import fetch_daily_top_tickers
+        top_tickers = fetch_daily_top_tickers(limit=100)
+    except Exception:
+        top_tickers = []
+    if not top_tickers:
+        return []
+    _save_trending_to_db(top_tickers)
+    return [t for t, _ in top_tickers[:limit]]
 
 
 # ---------------------------------------------------------------------------

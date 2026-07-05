@@ -41,12 +41,12 @@ Respond ONLY with a JSON object:
 """
 
 
-def _run_gemini(prompt: str) -> str:
-    """Call the Antigravity (agy) CLI on the Flash tier; return stdout ('' on failure)."""
-    output, _ = run_agy(prompt, model=None, timeout=90)
+def _run_gemini(prompt: str) -> tuple[str, str]:
+    """Call the Antigravity (agy) CLI on the Flash tier; return (stdout, error)."""
+    output, err = run_agy(prompt, model=None, timeout=90)
     if output:
         record_call("flash")
-    return output
+    return output, err
 
 
 def _parse_response(raw: str) -> dict | None:
@@ -106,8 +106,11 @@ def analyze_articles(
     "content" (scraped text) and "source" are used when present.
 
     Returns a dict with keys: sentiment_score, sentiment_label, summary,
-    impact_level, key_themes, is_stock_specific.
-    Returns a neutral default dict on failure.
+    impact_level, key_themes, is_stock_specific, analysis_failed.
+
+    "analysis_failed" is True when there was nothing to analyze or the Gemini
+    call/parse failed — the score/label are then placeholders and callers must
+    NOT persist or cache them ("error" says what went wrong).
     """
     _default: dict = {
         "sentiment_score": 0.0,
@@ -116,9 +119,10 @@ def analyze_articles(
         "impact_level": 0,
         "key_themes": [],
         "is_stock_specific": not is_sector_fallback,
+        "analysis_failed": True,
     }
     if not articles:
-        return _default
+        return {**_default, "error": "No articles found to analyze"}
 
     lines: list[str] = []
     for i, art in enumerate(articles, start=1):
@@ -151,7 +155,9 @@ def analyze_articles(
         previous_context=previous_context,
         articles_block="\n\n".join(lines),
     )
-    raw = _run_gemini(prompt)
-    if not raw:
-        return _default
-    return _parse_response(raw) or _default
+    raw, err = _run_gemini(prompt)
+    if raw:
+        parsed = _parse_response(raw)
+        if parsed is not None:
+            return {**parsed, "analysis_failed": False}
+    return {**_default, "error": err or "Gemini returned an unparseable response"}

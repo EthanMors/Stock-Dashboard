@@ -7,7 +7,12 @@ import streamlit as st
 
 from components.gemini_usage_bar import render_gemini_usage_bar
 from components.ui import inject_global_css, page_header, render_sidebar_nav
-from data.reddit_fetcher import fetch_top_posts_for_ticker, fetch_daily_top_tickers, TOP_N
+from data.reddit_fetcher import (
+    fetch_top_posts_for_ticker,
+    fetch_daily_top_tickers,
+    get_last_error,
+    TOP_N,
+)
 from data.wsb_sentiment import analyze_sentiment, analyze_batch_sentiment
 from data.twitter_fetcher import search_tweets_for_ticker
 from data.twitter_sentiment import analyze_tweet_sentiment, analyze_batch_tweet_sentiment
@@ -252,10 +257,11 @@ def _save_twitter_summary(
 # Reddit orchestration (identical logic to 8_reddit.py's _load_data)
 # ===========================================================================
 
-def _load_reddit_data(ticker: str) -> tuple[list[dict], dict | None]:
-    top_posts, subreddits_searched = fetch_top_posts_for_ticker(ticker)
+def _load_reddit_data(ticker: str) -> tuple[list[dict], dict | None, str]:
+    """Returns (analyzed_posts, summary_row, error). error is '' when posts were found."""
+    top_posts, subreddits_searched, fetch_error = fetch_top_posts_for_ticker(ticker)
     if not top_posts:
-        return [], None
+        return [], None, fetch_error or f"No posts mentioning {ticker} were found."
 
     post_ids = [p["post_id"] for p in top_posts]
     cached_posts = _get_cached_posts(post_ids)
@@ -274,7 +280,9 @@ def _load_reddit_data(ticker: str) -> tuple[list[dict], dict | None]:
                 cached["sentiment_score"] = sentiment["sentiment_score"]
                 cached["sentiment_label"] = sentiment["sentiment_label"]
                 cached["analyzed_at"] = datetime.now(timezone.utc).isoformat()
-                _save_post(cached)
+                # A failed Gemini call must stay uncached so it is retried.
+                if not sentiment.get("analysis_failed"):
+                    _save_post(cached)
             analyzed_posts.append(cached)
         else:
             sentiment = analyze_sentiment(
@@ -288,25 +296,27 @@ def _load_reddit_data(ticker: str) -> tuple[list[dict], dict | None]:
                 "sentiment_label": sentiment["sentiment_label"],
                 "analyzed_at":     datetime.now(timezone.utc).isoformat(),
             }
-            _save_post(full_post)
+            if not sentiment.get("analysis_failed"):
+                _save_post(full_post)
             analyzed_posts.append(full_post)
 
     summary_row = _get_cached_wsb_summary(ticker)
 
     if summary_row is None:
         batch_result = analyze_batch_sentiment(top_posts, ticker)
-        _save_wsb_summary(
-            ticker=ticker,
-            subreddits=subreddits_searched,
-            sentiment_score=batch_result["sentiment_score"],
-            sentiment_label=batch_result["sentiment_label"],
-            summary=batch_result["summary"],
-            hype_level=batch_result["hype_level"],
-            post_ids=post_ids,
-        )
-        summary_row = _get_cached_wsb_summary(ticker)
+        if not batch_result.get("analysis_failed"):
+            _save_wsb_summary(
+                ticker=ticker,
+                subreddits=subreddits_searched,
+                sentiment_score=batch_result["sentiment_score"],
+                sentiment_label=batch_result["sentiment_label"],
+                summary=batch_result["summary"],
+                hype_level=batch_result["hype_level"],
+                post_ids=post_ids,
+            )
+            summary_row = _get_cached_wsb_summary(ticker)
 
-    return analyzed_posts, summary_row
+    return analyzed_posts, summary_row, ""
 
 
 # ===========================================================================
@@ -438,11 +448,17 @@ def _render_post(post: dict, idx: int) -> None:
             )
 
         st.markdown(f"[Open on Reddit ↗]({post.get('permalink', '')})")
+        match_note = {
+            "explicit": "Mentions ticker directly",
+            "company":  "Mentions company by name",
+            "related":  "Related discussion (no direct mention)",
+        }.get(post.get("match_type", ""), "")
         st.caption(
             f"Posted by u/{post.get('author', '?')} · "
             f"r/{post.get('subreddit', '?')} · "
             f"Post ID: {post.get('post_id', '')} · "
             f"{'From DB cache' if post.get('analyzed_at') else 'Just analyzed'}"
+            + (f" · {match_note}" if match_note else "")
         )
 
 
@@ -561,6 +577,8 @@ def _render_reddit_tab() -> None:
         cols = st.columns(min(len(mentions), 10))
         for i, m in enumerate(mentions[:10]):
             cols[i].metric(m["ticker"], m["mentions"])
+    elif get_last_error():
+        st.error(f"Could not fetch mentions: {get_last_error()}")
     else:
         st.info(f"No mention data available for {date_str}.")
 
@@ -580,13 +598,10 @@ def _render_reddit_tab() -> None:
     st.session_state["active_ticker"] = ticker_input
 
     with st.spinner(f"Loading Reddit posts for {ticker_input} across multiple subreddits…"):
-        posts, summary_row = _load_reddit_data(ticker_input)
+        posts, summary_row, load_error = _load_reddit_data(ticker_input)
 
     if not posts:
-        st.warning(
-            f"No posts found for **{ticker_input}** on Reddit. "
-            "Try a different ticker or check back later."
-        )
+        st.warning(f"**{ticker_input}**: {load_error}")
         return
 
     if summary_row:

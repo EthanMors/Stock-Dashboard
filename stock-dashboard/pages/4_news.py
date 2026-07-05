@@ -287,6 +287,11 @@ def _render_market_pulse_tab() -> None:
                                                key=lambda a: a["feed_category"]):
                     batch_list = list(batch)[:5]
                     result = macro_news_analyzer.analyze_macro_articles(batch_list, feed_cat)
+                    # Never cache failed analyses — the articles would be marked
+                    # seen and the placeholder served until they age out.
+                    if result.get("analysis_failed"):
+                        st.warning(f"Gemini analysis failed for {feed_cat} articles — will retry on next refresh.")
+                        continue
                     for article in batch_list:
                         macro_news_cache.save_macro_analysis(article, result)
 

@@ -535,9 +535,10 @@ if _ctrl["run"]:
         universe = list(dict.fromkeys(get_reddit_trending_pool(20) + _ctrl["custom"]))
         if not universe:
             st.warning(
-                "No Reddit-trending tickers found in the last 7 days. Visit the "
-                "Social Sentiment page and refresh daily mentions first, or pick a "
-                "different industry pool."
+                "Could not build the Reddit-trending pool: no mentions cached in the "
+                "last 7 days and the live r/wallstreetbets fetch failed (Reddit "
+                "blocks/rate-limits unauthenticated access at times). Try again in a "
+                "few minutes or pick a different industry pool."
             )
     else:
         universe = list(dict.fromkeys(INDUSTRY_POOLS[_ctrl["industry"]] + _ctrl["custom"]))

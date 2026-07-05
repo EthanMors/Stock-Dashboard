@@ -45,11 +45,15 @@ def get_latest_analysis(ticker: str) -> Optional[dict]:
     """
     conn = _get_connection()
     try:
+        # Rows with an empty summary and impact 0 are failed analyses that
+        # older versions persisted; skip them so a real analysis gets re-run
+        # instead of serving "neutral 0.0" forever.
         row = conn.execute(
             """
             SELECT *
             FROM   portfolio_news_analysis
             WHERE  ticker = ?
+              AND  NOT (COALESCE(summary, '') = '' AND COALESCE(impact_level, 0) = 0)
             ORDER  BY analyzed_at DESC
             LIMIT  1
             """,

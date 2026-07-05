@@ -117,11 +117,13 @@ def analyze_macro_articles(articles: list[dict], feed_category: str) -> dict:
     Each article dict should have at minimum: "title", "description", "source".
 
     Returns a dict with keys: sentiment_score, sentiment_label, summary, impact_level,
-    key_themes, market_impact_type, affected_sectors, macro_category.
-    Returns a neutral default dict on failure.
+    key_themes, market_impact_type, affected_sectors, macro_category, analysis_failed.
+
+    "analysis_failed" is True when the Gemini call/parse failed — callers must
+    not persist such placeholder results as if they were real analyses.
     """
     if not articles:
-        return _DEFAULT_RESULT
+        return {**_DEFAULT_RESULT, "analysis_failed": True}
 
     lines: list[str] = []
     for i, art in enumerate(articles, start=1):
@@ -136,6 +138,8 @@ def analyze_macro_articles(articles: list[dict], feed_category: str) -> dict:
 
     prompt = _MACRO_PROMPT_TEMPLATE.format(articles_block="\n\n".join(lines))
     raw = _run_gemini(prompt)
-    if not raw:
-        return _DEFAULT_RESULT
-    return _parse_response(raw) or _DEFAULT_RESULT
+    if raw:
+        parsed = _parse_response(raw)
+        if parsed is not None:
+            return {**parsed, "analysis_failed": False}
+    return {**_DEFAULT_RESULT, "analysis_failed": True}
