@@ -11,13 +11,9 @@ run_seasonality_analysis(payload) -> dict | None
     Returns the parsed Gemini JSON dict, or {"_error": str} on failure.
 """
 
-import json
-import re
-import subprocess
-
 import pandas as pd
+from data.ai_router import run_ai, extract_json_from_text
 
-from data.gemini_tracker import record_call
 
 _PROMPT_TEMPLATE = """\
 You are a macro strategist and portfolio risk manager (Persona: regime-strategist).
@@ -234,39 +230,16 @@ def build_prompt(payload: dict) -> str:
 
 
 def _run_gemini_pro(prompt: str) -> tuple[str, str]:
-    """Run Gemini 2.5 Pro headlessly. Returns (stdout, stderr)."""
-    try:
-        result = subprocess.run(
-            ["gemini.cmd", "-m", "gemini-2.5-pro", "-p", ""],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-            timeout=240,
-        )
-        output = result.stdout.strip()
-        if output:
-            record_call("pro")
-        return output, result.stderr.strip()
-    except subprocess.TimeoutExpired:
-        return "", "Timed out after 240s"
-    except FileNotFoundError:
-        return "", ("gemini.cmd was not found on PATH — install the Gemini CLI "
-                    "(npm i -g @google/gemini-cli) and restart the dashboard.")
-    except Exception as exc:
-        return "", str(exc)
+    """Call Pro tier model via AI router with automatic Flash fallback. Returns (stdout, stderr)."""
+    return run_ai(prompt, tier="pro", timeout=240, fallback_to_flash=True)
 
 
 def _parse_gemini_json(raw: str) -> dict | None:
-    match = re.search(r"\{.*\}", raw, re.DOTALL)
-    if not match:
-        return None
-    try:
-        return json.loads(match.group())
-    except json.JSONDecodeError:
-        return None
+    data = extract_json_from_text(raw)
+    if isinstance(data, dict):
+        return data
+    return None
+
 
 
 def run_seasonality_analysis(payload: dict) -> dict | None:

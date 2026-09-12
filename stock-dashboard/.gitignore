@@ -12,3 +12,4 @@ conf/token.txt
 webull_trade_sdk.log*
 *.tmp.*
 data/gemini_usage.json
+.claude/

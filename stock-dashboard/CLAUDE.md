@@ -76,7 +76,11 @@ Webull API keys start in "Pending" status and must be authorized via the Webull 
 - **SQLite access:** Use the helpers in `cache.py` and `thesis_form.py` rather than opening raw connections in pages.
 
 ## Use of AI for analysis
-Make sure whenever we are attempting to use AI for any type of analysis we have to implement it using the CLI version I do not have access to any API keys for gemini or claude so use the CLI on the pro tier.
+All AI analysis is routed through the local Google Antigravity CLI (`agy`) using `data/ai_router.py` without requiring paid API keys:
+- **Fast / Flash Tier (`gemini-3.8-flash-medium`):** Used for news sentiment, Reddit/social sentiment, technical analysis commentary (~5s latency, high daily quota).
+- **Deep / Pro Tier (`gemini-3.1-pro-low`):** Used for MPT portfolio optimization, options volatility/skew analysis, hedge fund 13F synthesis, and holistic portfolio insights. Includes automatic graceful fallback to Flash if Pro times out or hits limits.
+Always call `data.ai_router.run_ai()` or `data.ai_router.run_ai_json()` instead of invoking `subprocess` directly.
+
 
 ## Default Coding Workflow
 

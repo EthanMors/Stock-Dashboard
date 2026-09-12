@@ -1,8 +1,5 @@
-import json
-import re
-import subprocess
+from data.ai_router import run_ai, extract_json_from_text
 
-from data.gemini_tracker import record_call
 
 _VALID_IMPACT_TYPES = frozenset({
     "monetary_policy", "geopolitical", "trade_policy",
@@ -47,37 +44,17 @@ _DEFAULT_RESULT = {
 
 
 def _run_gemini(prompt: str) -> str:
-    """Call Gemini CLI via subprocess, passing prompt via stdin to avoid shell interpretation issues."""
-    try:
-        result = subprocess.run(
-            ["gemini.cmd", "-p", ""],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-            timeout=90,
-        )
-        output = result.stdout.strip()
-        if output:
-            record_call("flash")
-        return output
-    except subprocess.TimeoutExpired:
-        return ""
-    except Exception:
-        return ""
+    """Call AI router via Flash tier."""
+    output, _ = run_ai(prompt, tier="flash")
+    return output
 
 
 def _parse_response(raw: str) -> dict | None:
-    """Extract and validate the first JSON object from a Gemini response string."""
-    match = re.search(r"\{.*\}", raw, re.DOTALL)
-    if not match:
+    """Extract and validate the first JSON object from an AI response string."""
+    data = extract_json_from_text(raw)
+    if not isinstance(data, dict):
         return None
-    try:
-        data = json.loads(match.group())
-    except json.JSONDecodeError:
-        return None
+
 
     # Clamp sentiment score
     score = float(data.get("sentiment_score", 0.0))

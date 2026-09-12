@@ -56,14 +56,17 @@ Each `data/` module owns one domain:
 - **SQLite layer:** Persistent, cross-session. Use for AI analysis results, hedge fund filings, Reddit posts.
 - **Rule:** Never put `@st.cache_data` in a `data/` module that writes to SQLite. Pick one layer.
 
-### 4. All AI analysis via Gemini CLI subprocess
+### 4. All AI analysis via centralized AI router (`data/ai_router.py`)
 
-No Python SDK. No API keys. Only:
+No Python SDK. No API keys. Routed via local Google Antigravity CLI (`agy`):
+```python
+from data.ai_router import run_ai, run_ai_json
+
+stdout, stderr = run_ai(prompt, tier="flash")  # Gemini 3.8 Flash (1000/day)
+data, err = run_ai_json(prompt, tier="pro")    # Gemini 3.1 Pro (50/day with auto-fallback)
 ```
-gemini.cmd -p ""                         # Flash (1000/day)
-gemini.cmd -m gemini-2.5-pro -p ""      # Pro (50/day)
-```
-Always pass the prompt via stdin. Track calls with `gemini_tracker.record_call()`. Parse JSON from stdout with `re.search(r"\{.*\}", raw, re.DOTALL)`.
+Automatic prompt deduplication cache (15 min TTL) prevents burning daily quota. Automatic `record_call()` tracking. Automatic JSON extraction and cleanup.
+
 
 ### 5. One SQLite database per concern
 
@@ -178,8 +181,8 @@ Plans should specify which section each new function goes into.
 | Reddit JSON API | reddit_fetcher.py | None | ~60/min | r/WallStreetBets |
 | SEC EDGAR (edgartools) | hedge_fund_fetcher.py | Email identity string | ~10/min | 13F filings |
 | Webull OpenAPI | webull_positions.py | APP_KEY + APP_SECRET + ACCOUNT_ID | Varies | 15-day key expiry |
-| Gemini CLI (Flash) | news_analyzer, wsb_sentiment | Local `gemini.cmd` | 1000/day | Free tier |
-| Gemini CLI (Pro) | options_agent | Local `gemini.cmd` | 50/day | Pro tier |
+| AI CLI (Flash) | news_analyzer, wsb_sentiment, etc. | Local `agy` CLI | 1000/day | Flash tier (`gemini-3.8-flash-medium`) |
+| AI CLI (Pro) | options_agent, mpt_agent, etc. | Local `agy` CLI | 50/day | Pro tier (`gemini-3.1-pro-low`) with auto-fallback |
 
 When planning features that use multiple external services, always note which service and whether it requires a new env variable.
 
@@ -196,10 +199,11 @@ The `analytics/` module is a standalone options math library with its own pytest
 
 ## Common Planning Mistakes to Avoid
 
-1. **Don't propose SDK-based Gemini calls.** Only `subprocess` + `gemini.cmd` is available.
+1. **Don't propose SDK-based Gemini calls.** Only CLI routing via `data/ai_router.py` is supported.
 2. **Don't propose opening raw `sqlite3.connect()` in page files.** Always route through `data/` module helpers.
 3. **Don't add `@st.cache_data` inside `data/` modules that write to SQLite.** Pick one caching layer.
-4. **Don't propose `gemini.cmd --agent`.** The `--agent` flag is interactive-only and returns empty stdout in headless mode. Use `-p ""` always.
+4. **Don't write raw `subprocess.run` calls for AI.** Use `data.ai_router.run_ai()` or `run_ai_json()`.
+
 5. **Don't hardcode db paths relative to cwd.** Use `os.path.join(os.path.dirname(__file__), "..", "db", "file.db")`.
 6. **Don't duplicate metric calculations in pages.** All ratio math goes through `calculator.py`.
 7. **Don't propose REST API endpoints.** This is a pure Streamlit app — no FastAPI, Flask, or separate backend process.

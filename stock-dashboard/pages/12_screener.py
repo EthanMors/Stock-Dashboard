@@ -507,7 +507,7 @@ def _render_sidebar() -> None:
             )
         with st.expander("What does the Gemini Risk Analysis do?"):
             st.markdown(
-                "Gemini 2.5 Pro reviews the stock's quantitative metrics and returns:\n"
+                "Gemini 3.1 Pro reviews the stock's quantitative metrics and returns:\n"
                 "- **Risk Score (1–10):** 1 = very low risk, 10 = extremely high risk\n"
                 "- **Upside Thesis:** what the numbers suggest about upside potential\n"
                 "- **Key Risks:** 3–5 specific risk factors from the metrics\n"
@@ -535,8 +535,9 @@ def _render_sidebar() -> None:
         st.markdown("---")
         st.caption(
             "Data sourced from Yahoo Finance via yfinance. "
-            "Gemini analysis via Google Gemini 2.5 Pro CLI."
+            "Gemini analysis via Google Gemini 3.1 Pro CLI."
         )
+
 
 
 def _render_filters() -> tuple[int, int, float, float, int, str, int]:
@@ -873,7 +874,7 @@ def _render_stock_detail(row: pd.Series, analysis: dict | None) -> None:
                     key=btn_key,
                     help=f"Uses 1 Gemini Pro call. {pro_remaining} remaining today.",
                 ):
-                    with st.spinner(f"Running Gemini 2.5 Pro analysis for {ticker}..."):
+                    with st.spinner(f"Running Gemini 3.1 Pro analysis for {ticker}..."):
                         result = run_risk_analysis(row.to_dict())
                     st.session_state[f"analysis_{ticker}"] = result
                     st.rerun()
@@ -925,19 +926,57 @@ def _render_analysis_block(ticker: str, analysis: dict) -> None:
     # Red flags
     red_flags = analysis.get("red_flags", [])
     if red_flags:
-        st.markdown("**Red Flags:**")
-        for f in red_flags:
-            st.markdown(f"- {f}")
 
-    analyzed_at = analysis.get("analyzed_at", "")
+    # Row 1: Verdict badge + Risk score meter
+    col_verdict, col_score = st.columns([1, 1])
+
+    with col_verdict:
+        st.markdown("**Verdict**")
+        st.markdown(_render_verdict_badge(verdict), unsafe_allow_html=True)
+
+    with col_score:
+        st.markdown(f"**Risk Score: {risk_score}/10**")
+        st.markdown(_render_risk_score_bar(risk_score), unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Row 2: Upside Thesis (callout / quote)
+    if upside_thesis:
+        st.markdown("**Upside Thesis**")
+        st.info(upside_thesis)
+
+    # Row 3: Key Risks & Red Flags side-by-side
+    col_risks, col_flags = st.columns(2)
+
+    with col_risks:
+        st.markdown("**Key Risks**")
+        if key_risks:
+            for r in key_risks:
+                st.markdown(f"• {r}")
+        else:
+            st.caption("None identified.")
+
+    with col_flags:
+        st.markdown("**Red Flags**")
+        if red_flags:
+            for f in red_flags:
+                st.markdown(f"⚠️ {f}")
+        else:
+            st.caption("None identified.")
+
+    # Analyzed at timestamp
+    analyzed_at = analysis.get("analyzed_at")
     if analyzed_at:
-        st.caption(f"Analysis cached at: {analyzed_at} UTC")
+        try:
+            dt = datetime.fromisoformat(analyzed_at)
+            age_str = f"Analyzed {dt.strftime('%b %d, %Y %H:%M UTC')}"
+        except (ValueError, TypeError):
+            age_str = f"Analyzed: {analyzed_at}"
+        st.caption(f"_{age_str} · Cached for 24h_")
 
 
 def _render_batch_analysis_section(df: pd.DataFrame) -> None:
-    """
-    Render the 'Analyze Top N with Gemini' batch section below the results table.
-    """
+    """Render the 'Analyze Top N with Gemini' batch section below the results table."""
     if df.empty:
         return
 
@@ -946,19 +985,21 @@ def _render_batch_analysis_section(df: pd.DataFrame) -> None:
     stats = get_today_stats()
     pro_remaining = PRO_DAILY_LIMIT - stats.get("pro", 0)
 
-    max_n = min(_DEFAULT_MAX_BATCH, len(df), pro_remaining)
-
     if pro_remaining <= 0:
         st.warning("Gemini Pro daily limit (50) reached. Batch analysis unavailable until tomorrow.")
         return
 
-    col_n, col_btn = st.columns([2, 2])
+    max_n = min(10, len(df), pro_remaining)
+    if max_n < 1:
+        return
+
+    col_n, col_btn = st.columns([1, 2])
     with col_n:
         n = st.number_input(
-            f"Number of top candidates to analyze (max {max_n})",
+            "Analyze top N candidates",
             min_value=1,
             max_value=max_n,
-            value=min(3, max_n),
+            value=min(5, max_n),
             step=1,
             key="screener_batch_n",
             help=f"Each stock uses 1 Gemini Pro call. {pro_remaining} remaining today.",
@@ -971,7 +1012,7 @@ def _render_batch_analysis_section(df: pd.DataFrame) -> None:
             help=f"Will use up to {n} Gemini Pro calls.",
         ):
             top_rows = df.head(int(n)).to_dict(orient="records")
-            with st.spinner(f"Running Gemini 2.5 Pro analysis for {n} stocks..."):
+            with st.spinner(f"Running Gemini 3.1 Pro analysis for {n} stocks..."):
                 batch_results = run_batch_risk_analysis(top_rows)
             for ticker, result in batch_results.items():
                 st.session_state[f"analysis_{ticker}"] = result
@@ -1001,7 +1042,7 @@ def main() -> None:
     page_header(
         "Speculative Stock Screener",
         "Surface small and micro-cap candidates with high upside potential, "
-        "then assess risk with Gemini 2.5 Pro.",
+        "then assess risk with Gemini 3.1 Pro.",
     )
 
     _render_disclaimer()

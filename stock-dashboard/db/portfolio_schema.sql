@@ -78,3 +78,18 @@ CREATE TABLE IF NOT EXISTS mpt_analysis (
 
 CREATE INDEX IF NOT EXISTS idx_mpta_ticker_key
     ON mpt_analysis (ticker_key, analyzed_at);
+
+CREATE TABLE IF NOT EXISTS account_daily_equity (
+    account_id      TEXT NOT NULL,
+    date            TEXT NOT NULL,
+    net_liquidation REAL,
+    cash_balance    REAL,
+    market_value    REAL,
+    unrealized_pnl  REAL,
+    recorded_at     TEXT NOT NULL,
+    PRIMARY KEY (account_id, date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ade_account_date
+    ON account_daily_equity (account_id, date);
+

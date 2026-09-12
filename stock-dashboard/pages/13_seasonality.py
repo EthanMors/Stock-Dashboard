@@ -477,7 +477,7 @@ def _render_outlook_tab(payload: dict, tickers: list) -> None:
 def _render_ai_section(payload: dict, tickers: list) -> None:
     section_header("Strategist Analysis")
     st.caption(
-        "Gemini 2.5 Pro reads every number on this page — regime, seasonality, "
+        "Gemini 3.1 Pro reads every number on this page — regime, seasonality, "
         "momentum, your exposure, and the catalyst calendar — and returns an "
         "action plan. Results cached 12 hours."
     )
@@ -496,7 +496,7 @@ def _render_ai_section(payload: dict, tickers: list) -> None:
         )
     with hint_col:
         st.caption(
-            f"Uses Gemini 2.5 Pro · ~60–240s · {quota_left}/{PRO_DAILY_LIMIT} Pro calls left today"
+            f"Uses Gemini 3.1 Pro · ~30–120s · {quota_left}/{PRO_DAILY_LIMIT} Pro calls left today"
         )
 
     if "seasonality_analysis" not in st.session_state:
@@ -510,7 +510,8 @@ def _render_ai_section(payload: dict, tickers: list) -> None:
         if cached is not None:
             st.session_state.seasonality_analysis = {**cached, "from_cache": True}
         else:
-            with st.spinner("Gemini 2.5 Pro building the regime playbook…"):
+            with st.spinner("Gemini 3.1 Pro building the regime playbook…"):
+
                 result = run_seasonality_analysis(payload)
             if result and "_error" not in result:
                 # Keep the DataFrames out of the stored inputs blob.

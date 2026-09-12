@@ -20,7 +20,9 @@ from data.gemini_tracker import record_call
 
 from components.gemini_usage_bar import render_gemini_usage_bar
 from components.ui import explainer, inject_global_css, page_header, render_sidebar_nav, section_header
+from data.ai_router import run_ai
 from data.options_agent import run_options_analysis
+
 from data.webull_positions import (
     is_configured,
     get_account_list,
@@ -43,6 +45,8 @@ from data.portfolio_cache import (
     get_latest_hedge_fund_analysis,
     save_mpt_analysis,
     get_latest_mpt_analysis,
+    record_daily_equity,
+    compute_equity_sharpe,
 )
 from data.hedge_fund_agent import run_hedge_fund_analysis
 from data.mpt_agent import run_mpt_analysis
@@ -555,24 +559,10 @@ def _ta_port_build_chart(
 
 
 def _ta_port_run_gemini(prompt: str) -> str:
-    """Call Gemini Flash CLI for TA analysis in the Portfolio TA tab."""
-    try:
-        result = subprocess.run(
-            ["gemini.cmd", "-p", ""],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-            timeout=90,
-        )
-        output = result.stdout.strip()
-        if output:
-            record_call("flash")
-        return output
-    except (subprocess.TimeoutExpired, Exception):
-        return ""
+    """Call AI router for TA analysis in the Portfolio TA tab."""
+    output, _ = run_ai(prompt, tier="flash")
+    return output
+
 
 
 def _ta_port_build_prompt(
@@ -1272,6 +1262,11 @@ def _extract_ticker(position: dict) -> str:
         val = position.get(field, "")
         if val and isinstance(val, str):
             return val.upper().strip()
+        if isinstance(val, dict):
+            for subfield in _TICKER_FIELD_CANDIDATES:
+                subval = val.get(subfield, "")
+                if subval and isinstance(subval, str):
+                    return subval.upper().strip()
     return ""
 
 
@@ -1567,7 +1562,7 @@ def _render_hedge_fund_overlap(positions: list) -> None:
     st.markdown("---")
     st.markdown("### Smart Money Analysis")
     st.caption(
-        "Gemini 2.5 Pro infers investment theses and portfolio-level signals from the 13F data above. "
+        "Gemini 3.1 Pro infers investment theses and portfolio-level signals from the 13F data above. "
         "Results cached 4 hours."
     )
 
@@ -1582,7 +1577,7 @@ def _render_hedge_fund_overlap(positions: list) -> None:
             key="hf_gemini_btn",
         )
     with hf_hint_col:
-        st.caption("Uses Gemini 2.5 Pro · ~60–180s · Results cached 4 hours · analyzes all overlapping funds")
+        st.caption("Uses Gemini 3.1 Pro · ~30–90s · Results cached 4 hours · analyzes all overlapping funds")
 
     _trigger_hf = hf_run_clicked or st.session_state.pop("analyze_all_hf", False)
 
@@ -1593,7 +1588,8 @@ def _render_hedge_fund_overlap(positions: list) -> None:
         if cached is not None:
             st.session_state.hf_analysis = {**cached, "from_cache": True}
         else:
-            with st.spinner("Gemini 2.5 Pro analyzing hedge fund positioning…"):
+            with st.spinner("Gemini 3.1 Pro analyzing hedge fund positioning…"):
+
                 result = run_hedge_fund_analysis(overlapping, portfolio_tickers)
             if result is not None and "_error" not in result:
                 save_hedge_fund_analysis(portfolio_tickers, result)
@@ -1636,7 +1632,7 @@ def _render_mpt_analysis(positions: list) -> None:
     st.markdown("### Modern Portfolio Theory Analysis")
     st.caption(
         "Pre-computes covariance, correlation, Sharpe ratio, beta, and optimal weights in Python, "
-        "then Gemini 2.5 Pro interprets the results. Results cached 4 hours."
+        "then Gemini 3.1 Pro interprets the results. Results cached 4 hours."
     )
 
     explainer(
@@ -1686,7 +1682,7 @@ def _render_mpt_analysis(positions: list) -> None:
         )
     with mpt_hint_col:
         st.caption(
-            "Uses Gemini 2.5 Pro · ~60–180s · Results cached 4 hours · "
+            "Uses Gemini 3.1 Pro · ~30–90s · Results cached 4 hours · "
             "analyzes correlation, Sharpe, beta, and optimal weights"
         )
 
@@ -1698,7 +1694,8 @@ def _render_mpt_analysis(positions: list) -> None:
         if cached is not None:
             st.session_state.mpt_analysis = {**cached, "from_cache": True}
         else:
-            with st.spinner("Pre-computing MPT metrics and calling Gemini 2.5 Pro…"):
+            with st.spinner("Pre-computing MPT metrics and calling Gemini 3.1 Pro…"):
+
                 raw_result = run_mpt_analysis(positions)
             if raw_result is not None and "_error" not in raw_result:
                 metrics_to_save = raw_result.pop("_metrics", {})
@@ -1926,9 +1923,15 @@ def _render_mpt_metrics_tables(metrics: dict) -> None:
         help="Annualized portfolio standard deviation accounting for correlations",
     )
     col3.metric(
-        "Sharpe Ratio",
+        "Sharpe (Theoretical 1Y)",
         f"{metrics['portfolio_sharpe']:.3f}",
-        help="(Return − 5% risk-free rate) / Volatility. >1.0 is good.",
+        delta="Asset Basket Benchmark",
+        delta_color="off",
+        help=(
+            "(Return − 5% risk-free rate) / Volatility. "
+            "Theoretical benchmark of your current holdings basket if held across the past 12 months. "
+            "See the Dashboard tab for your actual Cost-Basis / Account Sharpe."
+        ),
     )
     col4.metric(
         "HHI Concentration",
@@ -2510,6 +2513,8 @@ selected_account_id = label_to_id.get(selected_label, selected_label)
 # KPI Dashboard Header
 # ---------------------------------------------------------------------------
 selected_balance = accounts[selected_label]
+if selected_account_id and selected_balance:
+    record_daily_equity(selected_account_id, selected_balance)
 
 def _to_float(v):
     try:
@@ -2613,6 +2618,65 @@ def _color_pnl(val):
     except (TypeError, ValueError):
         pass
     return ""
+
+
+# Heat-map palette for the holdings table. Streamlit's dataframe only honours a
+# small CSS subset (color / background-color / font-weight), so tints are done
+# with rgba background colours rather than borders or gradients.
+_UP_RGB = "46, 204, 113"
+_DOWN_RGB = "231, 76, 60"
+_FLAT_CSS = "color: #8b93a7"
+
+
+def _heat_css(pct, cap: float, strong: bool = True) -> str:
+    """Green/red text plus a background tint whose opacity scales with `pct`.
+
+    `cap` is the move size (in percent) at which the tint reaches full strength,
+    so day moves and lifetime moves can use different sensitivities.
+    """
+    try:
+        v = float(pct)
+    except (TypeError, ValueError):
+        return ""
+    if pd.isna(v):
+        return ""
+    if v == 0:
+        return _FLAT_CSS
+    rgb = _UP_RGB if v > 0 else _DOWN_RGB
+    alpha = min(abs(v) / cap, 1.0) * 0.30
+    weight = "600" if strong else "500"
+    return (f"color: rgb({rgb}); font-weight: {weight}; "
+            f"background-color: rgba({rgb}, {alpha:.3f})")
+
+
+def _style_holdings(df: pd.DataFrame):
+    """Colour-code the holdings table by performance.
+
+    Day and total P&L cells (both $ and %) are tinted by their own percentage
+    move, and the Symbol cell is tinted by the day move so a glance down the
+    first column shows what is up and down today.
+    """
+    styles = pd.DataFrame("", index=df.index, columns=df.columns)
+
+    day_pct = df["Day P&L %"] if "Day P&L %" in df.columns else None
+    tot_pct = df["Total P&L %"] if "Total P&L %" in df.columns else None
+
+    if day_pct is not None:
+        day_css = day_pct.map(lambda v: _heat_css(v, cap=3.0))
+        for col in ("Day P&L $", "Day P&L %"):
+            if col in styles.columns:
+                styles[col] = day_css
+        if "Symbol" in styles.columns:
+            styles["Symbol"] = day_pct.map(lambda v: _heat_css(v, cap=3.0, strong=False))
+
+    if tot_pct is not None:
+        tot_css = tot_pct.map(lambda v: _heat_css(v, cap=25.0))
+        for col in ("Total P&L $", "Total P&L %"):
+            if col in styles.columns:
+                styles[col] = tot_css
+
+    return df.style.apply(lambda _: styles, axis=None)
+
 
 # ---------------------------------------------------------------------------
 # Compact summary helpers for Dashboard tab
@@ -2949,43 +3013,55 @@ def _compute_risk_stats(
     positions: list,
     period: str,
     close_df: pd.DataFrame,
+    account_id: str = "",
 ) -> dict:
     """Compute portfolio risk and return stats from a close-price DataFrame.
 
     Parameters
     ----------
-    positions : Raw position dicts (needed for market-value weights).
+    positions : Raw position dicts (needed for market-value weights & cost basis).
     period    : Period label string for display only ("1M", "3M", "6M", "1Y").
     close_df  : DataFrame of daily close prices (output of get_batch_history).
                 Must include "SPY" column and at least one portfolio ticker.
+    account_id: Active account ID for looking up historical daily equity snapshots.
 
     Returns
     -------
     dict with keys:
-        beta          (float)  : portfolio beta vs SPY
-        ann_vol       (float)  : annualized portfolio volatility %
-        sharpe        (float)  : Sharpe ratio (risk-free = _RISK_FREE_RATE)
-        max_drawdown  (float)  : max drawdown % over the period (negative number)
-        top_conc      (float)  : weight % of the single largest position
-        top_ticker    (str)    : ticker of the single largest position
-        n_days        (int)    : number of trading days in the window
+        beta               (float) : portfolio beta vs SPY
+        ann_vol            (float) : annualized portfolio volatility %
+        sharpe             (float) : active Sharpe ratio (true equity if >=5d, else cost basis, else theoretical)
+        theoretical_sharpe (float) : theoretical 1Y asset basket Sharpe (for comparison)
+        actual_return      (float) : actual portfolio unrealized return % on purchase cost
+        sharpe_mode        (str)   : "equity", "cost_basis", or "theoretical"
+        equity_days        (int)   : number of days in daily equity history
+        max_drawdown       (float) : max drawdown % over the period (negative number)
+        top_conc           (float) : weight % of the single largest position
+        top_ticker         (str)   : ticker of the single largest position
+        n_days             (int)   : number of trading days in the window
     Returns a dict of None values if computation fails.
     """
-    _EMPTY = dict(beta=None, ann_vol=None, sharpe=None,
+    _EMPTY = dict(beta=None, ann_vol=None, sharpe=None, theoretical_sharpe=None,
+                  actual_return=None, sharpe_mode="theoretical", equity_days=0,
                   max_drawdown=None, top_conc=None, top_ticker="?", n_days=0)
     try:
-        # ── Determine weights by market value ─────────────────────────────
+        # ── Determine weights and actual cost basis ─────────────────────────
         ticker_mv: dict[str, float] = {}
+        tot_cost = 0.0
+        tot_cost_mv = 0.0
         for pos in positions:
             t = _extract_ticker(pos)
-            if not t:
-                continue
-            _, _, mv = _extract_position_qty_cost(pos)
-            if mv > 0:
+            q, c, mv = _extract_position_qty_cost(pos)
+            if t and mv > 0:
                 ticker_mv[t] = ticker_mv.get(t, 0.0) + mv
+            if q > 0 and c > 0:
+                tot_cost += q * c
+                tot_cost_mv += mv if mv > 0 else (q * c)
 
         if not ticker_mv:
             return _EMPTY
+
+        actual_return_dec = ((tot_cost_mv - tot_cost) / tot_cost) if tot_cost > 0 else None
 
         total_mv = sum(ticker_mv.values())
         available = [t for t in ticker_mv if t in close_df.columns]
@@ -3020,13 +3096,31 @@ def _compute_risk_stats(
             if len(aligned) >= 5 and aligned["spy"].var() > 0:
                 beta = float(aligned["port"].cov(aligned["spy"]) / aligned["spy"].var())
 
-        # ── Sharpe ratio ──────────────────────────────────────────────────
+        # ── Theoretical Sharpe ratio ──────────────────────────────────────
         mean_daily = float(port_returns.mean())
         ann_return = mean_daily * 252
         if ann_vol > 0:
-            sharpe = (ann_return - _RISK_FREE_RATE) / (ann_vol / 100)
+            theo_sharpe = (ann_return - _RISK_FREE_RATE) / (ann_vol / 100)
         else:
-            sharpe = 0.0
+            theo_sharpe = 0.0
+
+        # ── Cost-Basis Sharpe ratio ───────────────────────────────────────
+        cost_sharpe = None
+        if actual_return_dec is not None and ann_vol > 0:
+            cost_sharpe = (actual_return_dec - _RISK_FREE_RATE) / (ann_vol / 100)
+
+        # ── True Equity Curve Sharpe (if >= 5 daily records logged) ────────
+        equity_stats = compute_equity_sharpe(account_id) if account_id else None
+
+        if equity_stats and equity_stats.get("sharpe") is not None:
+            active_sharpe = equity_stats["sharpe"]
+            sharpe_mode = "equity"
+        elif cost_sharpe is not None:
+            active_sharpe = cost_sharpe
+            sharpe_mode = "cost_basis"
+        else:
+            active_sharpe = theo_sharpe
+            sharpe_mode = "theoretical"
 
         # ── Max drawdown ──────────────────────────────────────────────────
         cumulative = (1 + port_returns).cumprod()
@@ -3041,14 +3135,19 @@ def _compute_risk_stats(
         return dict(
             beta=round(beta, 2) if beta is not None else None,
             ann_vol=round(ann_vol, 1),
-            sharpe=round(sharpe, 2),
+            sharpe=round(active_sharpe, 2) if active_sharpe is not None else None,
+            theoretical_sharpe=round(theo_sharpe, 2) if theo_sharpe is not None else None,
+            actual_return=round(actual_return_dec * 100, 1) if actual_return_dec is not None else None,
+            sharpe_mode=sharpe_mode,
+            equity_days=equity_stats["n_days"] if equity_stats else 0,
             max_drawdown=round(max_drawdown, 1),
             top_conc=round(top_conc, 1),
             top_ticker=top_ticker,
             n_days=n_days,
         )
     except Exception:
-        return dict(beta=None, ann_vol=None, sharpe=None,
+        return dict(beta=None, ann_vol=None, sharpe=None, theoretical_sharpe=None,
+                    actual_return=None, sharpe_mode="theoretical", equity_days=0,
                     max_drawdown=None, top_conc=None, top_ticker="?", n_days=0)
 
 
@@ -3529,7 +3628,7 @@ _PERF_PERIOD_MAP: dict[str, str] = {
 
 
 @st.fragment
-def _dashboard_visuals_ui(positions: list, tickers: list[str]) -> None:
+def _dashboard_visuals_ui(positions: list, tickers: list[str], account_id: str = "") -> None:
     """Dashboard tab visual section — period selector, performance chart, allocation donuts,
     risk stats strip, and enhanced positions table.
 
@@ -3540,6 +3639,7 @@ def _dashboard_visuals_ui(positions: list, tickers: list[str]) -> None:
     ----------
     positions : Raw position dicts from get_positions().
     tickers   : Unique ticker strings from the portfolio (for display purposes only).
+    account_id: Active account ID for looking up historical daily equity snapshots.
     """
     if not positions:
         st.info("No position data available.")
@@ -3627,7 +3727,7 @@ def _dashboard_visuals_ui(positions: list, tickers: list[str]) -> None:
 
     # ── Row 2: Risk stats strip ────────────────────────────────────────────
     if close_df_perf is not None and not close_df_perf.empty:
-        risk = _compute_risk_stats(positions, perf_period_label, close_df_perf)
+        risk = _compute_risk_stats(positions, perf_period_label, close_df_perf, account_id=account_id)
         _r1, _r2, _r3, _r4, _r5 = st.columns(5)
 
         # Beta: warn if > 1.5
@@ -3647,10 +3747,44 @@ def _dashboard_visuals_ui(positions: list, tickers: list[str]) -> None:
             help="Annualized portfolio standard deviation",
         )
 
+        _sharpe_val = risk["sharpe"]
+        _theo_sharpe = risk.get("theoretical_sharpe")
+        _mode = risk.get("sharpe_mode", "theoretical")
+        _act_ret = risk.get("actual_return")
+
+        if _mode == "equity":
+            _sh_title = "Sharpe (Equity Curve)"
+            _sh_delta = f"Live Equity ({risk.get('equity_days', 0)}d)"
+            _sh_color = "normal" if (_sharpe_val is not None and _sharpe_val >= 0) else "inverse"
+            _sh_help = (
+                f"True account Sharpe ratio computed from your daily Net Liquidation equity history. "
+                f"(Theoretical 1Y asset basket Sharpe is {_theo_sharpe:+.2f})."
+            )
+        elif _mode == "cost_basis":
+            _sh_title = "Sharpe (Cost Basis)"
+            _sh_delta = f"Actual P&L: {_act_ret:+.1f}%" if _act_ret is not None else None
+            _sh_color = "normal" if (_sharpe_val is not None and _sharpe_val >= 0) else "inverse"
+            _sh_help = (
+                f"Actual Sharpe based on your real Webull purchase prices (cost basis) and current P&L. "
+                f"Actual portfolio return: {_act_ret:+.1f}%, Volatility: {risk['ann_vol']:.1f}%. "
+                f"(Theoretical 1Y asset basket Sharpe is {_theo_sharpe:+.2f} if bought 1 yr ago at bottom)."
+            )
+        else:
+            _sh_title = "Sharpe Ratio"
+            _sh_delta = "Theoretical 1Y"
+            _sh_color = "off"
+            _sh_help = (
+                f"Theoretical asset Sharpe: (Ann. return − {_RISK_FREE_RATE*100:.1f}% risk-free) / Ann. vol. "
+                f"Computed from trailing {perf_period_label} market price history of your current holdings basket, "
+                "not your personal trade entry prices or brokerage account P&L."
+            )
+
         _r3.metric(
-            "Sharpe Ratio",
-            f"{risk['sharpe']:.2f}" if risk["sharpe"] is not None else "N/A",
-            help=f"(Ann. return − {_RISK_FREE_RATE*100:.1f}% risk-free) / Ann. vol",
+            _sh_title,
+            f"{_sharpe_val:.2f}" if _sharpe_val is not None else "N/A",
+            delta=_sh_delta,
+            delta_color=_sh_color,
+            help=_sh_help,
         )
 
         # Max drawdown: warn if < -20%
@@ -3727,11 +3861,29 @@ def _dashboard_visuals_ui(positions: list, tickers: list[str]) -> None:
         _row_h = 35
         _hdr_h = 38
         st.dataframe(
-            enh_df,
+            _style_holdings(enh_df),
             use_container_width=True,
             hide_index=True,
             height=_hdr_h + _row_h * len(enh_df),
             column_config=_col_cfg,
+        )
+
+        explainer(
+            "**Green means up, red means down** — the stronger the shade, the bigger the move.\n\n"
+            "- **Symbol** is tinted by *today's* move, so scanning the first column "
+            "tells you what is working today.\n"
+            "- **Day $ / Day %** use the same today's-move shading. Full colour at "
+            "±3%, which is a big single day for most stocks.\n"
+            "- **Total $ / Total %** shade by gain or loss *since you bought*. Full "
+            "colour at ±25%, because a position's lifetime move is much larger "
+            "than a daily one.\n\n"
+            "The two pairs use different scales on purpose — a 3% day is dramatic, "
+            "a 3% lifetime gain is not. Grey means flat or unknown (a position with "
+            "no cost basis on file shows no total P&L).\n\n"
+            "**30D** is a 30-trading-day price sparkline. It shows shape, not scale: "
+            "each line is scaled to its own high and low, so two lines that look "
+            "alike can be very different moves.",
+            title="How to read the colours",
         )
 
 
@@ -3844,11 +3996,12 @@ def _options_analysis_ui(tickers: list[str]) -> None:
                     with run_col:
                         opt_run_clicked = st.button("▶ Run Gemini Analysis", use_container_width=True, key="opt_run_btn")
                     with hint_col:
-                        st.caption("Uses Gemini 2.5 Pro · ~30–90s · Results cached 4 hours · analyzes both calls & puts")
+                        st.caption("Uses Gemini 3.1 Pro · ~15–60s · Results cached 4 hours · analyzes both calls & puts")
 
                     if opt_run_clicked:
                         st.session_state.options_results.pop(opt_sess_key, None)
-                        with st.spinner("Gemini 2.5 Pro analyzing the full option chain…"):
+                        with st.spinner("Gemini 3.1 Pro analyzing the full option chain…"):
+
                             entry = _load_or_analyze_options(
                                 opt_ticker, opt_expiry, opt_type, opt_price,
                                 opt_calls_df, opt_puts_df, opt_calls_display_df, opt_puts_display_df,
@@ -3939,7 +4092,7 @@ with _tab_dash:
     with _ins_run_col:
         _run_insights = st.button("🤖 Run AI Insights", use_container_width=True, key="ai_insights_btn")
     with _ins_cap_col:
-        st.caption("⚡ runs all 5 agents · 🤖 synthesizes with Gemini 2.5 Pro")
+        st.caption("⚡ runs all 5 agents · 🤖 synthesizes with Gemini 3.1 Pro")
 
     if _run_insights:
         st.session_state.ai_insights = None
@@ -3952,7 +4105,7 @@ with _tab_dash:
             "mpt_analysis":    st.session_state.mpt_analysis,
             "hf_analysis":     st.session_state.hf_analysis,
         }
-        with st.spinner("Gemini 2.5 Pro synthesizing all portfolio data… (~60–120s)"):
+        with st.spinner("Gemini 3.1 Pro synthesizing all portfolio data… (~30–90s)"):
             _insights_result = run_portfolio_insights(_pd)
         st.session_state.ai_insights = _insights_result
 
@@ -3965,17 +4118,18 @@ with _tab_dash:
         st.markdown(
             '<div style="background:#161b27;border:1px solid #1e2740;border-radius:8px;'
             'padding:14px 18px;color:#7a85a0;font-size:0.85rem;line-height:1.5">'
-            'Run <strong style="color:#e8eaf0">🤖 Run AI Insights</strong> for Gemini 2.5 Pro\'s holistic view — '
+            'Run <strong style="color:#e8eaf0">🤖 Run AI Insights</strong> for Gemini 3.1 Pro\'s holistic view — '
             'top actions, key risks, and smart-money divergence across all signals. '
             'For best results, click <strong style="color:#e8eaf0">⚡ Analyze Everything</strong> first.'
             '</div>',
             unsafe_allow_html=True,
         )
 
+
     st.markdown("---")
 
     # ── Portfolio visuals: performance chart, donuts, risk strip, holdings table ──
-    _dashboard_visuals_ui(positions_result, tickers)
+    _dashboard_visuals_ui(positions_result, tickers, account_id=selected_account_id)
 
     st.markdown("---")
 
@@ -4157,7 +4311,11 @@ with _tab_dash:
             _mm1, _mm2, _mm3 = st.columns(3)
             _mm1.metric("Return", f"{_pr:.1f}%")
             _mm2.metric("Volatility", f"{_pv:.1f}%")
-            _mm3.metric("Sharpe", f"{_sh:.2f}")
+            _mm3.metric(
+                "Sharpe",
+                f"{_sh:.2f}",
+                help="Theoretical basket Sharpe over trailing 1Y price history of current holdings.",
+            )
             _ais = _mpt_r.get("action_items", [])
             if _ais:
                 st.caption("Rebalancing actions:")
@@ -4278,7 +4436,7 @@ with _tab_opt:
         _render_mpt_analysis(positions_result)
     st.markdown("---")
     st.subheader("⚡ Options Analysis")
-    st.caption("Full option chain with Greeks, Gemini 2.5 Pro analysis of IV, P/C ratios, max pain, and GEX")
+    st.caption("Full option chain with Greeks, Gemini 3.1 Pro analysis of IV, P/C ratios, max pain, and GEX")
 
 # Options functions are defined below at module level and called via _options_analysis_ui(tickers)
 # which Streamlit will wire up to the correct tab context via the @st.fragment decorator.
@@ -4298,7 +4456,8 @@ with _tab_reddit:
 
 with _tab_smart:
     st.subheader("🏦 Smart Money Analysis")
-    st.caption("13F institutional positioning cross-referenced with your portfolio, analyzed by Gemini 2.5 Pro")
+    st.caption("13F institutional positioning cross-referenced with your portfolio, analyzed by Gemini 3.1 Pro")
+
     _render_hedge_fund_overlap(positions_result)
 
 with _tab_pulse:

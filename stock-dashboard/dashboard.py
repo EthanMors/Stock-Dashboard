@@ -179,7 +179,7 @@ def _render_landing() -> None:
          "pages/13_seasonality.py", "Open Seasonality"),
         (col3, "Screener",
          "Surface small and micro-cap candidates with high upside potential, "
-         "then assess the risk with Gemini 2.5 Pro.",
+         "then assess the risk with Gemini 3.1 Pro.",
          "pages/12_screener.py", "Open Screener"),
         (col4, "Metrics",
          "Deep-dive valuation, profitability, growth, and balance sheet metrics "

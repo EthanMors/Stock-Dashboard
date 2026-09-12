@@ -7,11 +7,8 @@ same JSON parsing, same return shapes — but prompts are written
 for tweet content rather than Reddit posts.
 """
 
-import json
-import re
-import subprocess
+from data.ai_router import run_ai, extract_json_from_text
 
-from data.gemini_tracker import record_call
 
 # ---------------------------------------------------------------------------
 # Prompt templates
@@ -65,42 +62,17 @@ Respond ONLY with a JSON object:
 # ---------------------------------------------------------------------------
 
 def _run_gemini(prompt: str) -> str:
-    """Call the Gemini Flash CLI and return stdout.
-
-    Prompt is passed via stdin (not as -p argument) to avoid shell
-    interpretation of special characters like < > | in tweet text.
-    Returns empty string on any failure.
-    """
-    try:
-        result = subprocess.run(
-            ["gemini.cmd", "-p", ""],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-            timeout=60,
-        )
-        output = result.stdout.strip()
-        if output:
-            record_call("flash")
-        return output
-    except subprocess.TimeoutExpired:
-        return ""
-    except Exception:
-        return ""
+    """Call AI router via Flash tier."""
+    output, _ = run_ai(prompt, tier="flash")
+    return output
 
 
 def _parse_json_response(raw: str, require_summary: bool = False) -> dict | None:
-    """Extract and parse the first JSON object from a Gemini response string."""
-    match = re.search(r"\{.*\}", raw, re.DOTALL)
-    if not match:
+    """Extract and parse the first JSON object from an AI response string."""
+    data = extract_json_from_text(raw)
+    if not isinstance(data, dict):
         return None
-    try:
-        data = json.loads(match.group())
-    except json.JSONDecodeError:
-        return None
+
 
     score = float(data.get("sentiment_score", 0.0))
     score = max(-1.0, min(1.0, score))

@@ -92,84 +92,44 @@ Rules:
 
 ---
 
-## Gemini CLI Invocation
+## AI CLI Router Invocation (`data/ai_router.py`)
 
-### Flash (default — news, Reddit, fast analysis)
+All AI interactions in the application MUST route through `data/ai_router.py`. Do NOT write raw `subprocess.run(["gemini.cmd", ...])` or `subprocess.run(["agy", ...])` calls in pages or fetchers.
 
-```python
-import subprocess
-import re
-import json
-from data.gemini_tracker import record_call
-
-def _run_gemini_flash(prompt: str) -> tuple[str, str]:
-    """Returns (stdout, stderr). Prompt via stdin."""
-    try:
-        result = subprocess.run(
-            ["gemini.cmd", "-p", ""],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-            timeout=90,
-        )
-        output = result.stdout.strip()
-        if output:
-            record_call("flash")
-        return output, result.stderr.strip()
-    except subprocess.TimeoutExpired:
-        return "", "Timed out after 90s"
-    except Exception as exc:
-        return "", str(exc)
-```
-
-### Pro (Gemini 2.5 Pro — options analysis, deep reasoning)
+### Running Text Prompts
 
 ```python
-def _run_gemini_pro(prompt: str) -> tuple[str, str]:
-    """Returns (stdout, stderr). Prompt via stdin."""
-    try:
-        result = subprocess.run(
-            ["gemini.cmd", "-m", "gemini-2.5-pro", "-p", ""],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-            timeout=120,
-        )
-        output = result.stdout.strip()
-        if output:
-            record_call("pro")
-        return output, result.stderr.strip()
-    except subprocess.TimeoutExpired:
-        return "", "Timed out after 120s"
-    except Exception as exc:
-        return "", str(exc)
+from data.ai_router import run_ai
+
+# Fast / Flash tier (Gemini 3.8 Flash) — ~5s latency, high quota
+stdout, stderr = run_ai(prompt, tier="flash")
+
+# Deep / Pro tier (Gemini 3.1 Pro) — ~15s latency, deep reasoning, automatic Flash fallback
+stdout, stderr = run_ai(prompt, tier="pro", timeout=180, fallback_to_flash=True)
 ```
 
-### Parsing JSON from Gemini output
+### Running Structured JSON Prompts
 
 ```python
-def _parse_gemini_json(raw: str) -> dict | None:
-    match = re.search(r"\{.*\}", raw, re.DOTALL)
-    if not match:
-        return None
-    try:
-        return json.loads(match.group())
-    except json.JSONDecodeError:
-        return None
+from data.ai_router import run_ai_json
+
+# Extracts and parses JSON, strips markdown code fences, validates structure
+data, err = run_ai_json(prompt, tier="flash", required_keys=["sentiment_score", "summary"])
+if data is None:
+    # Handle failure gracefully with fallback defaults
+    ...
 ```
 
-**Key rules:**
-- NEVER use the Gemini Python SDK or Anthropic SDK — only `subprocess` + `gemini.cmd`.
-- `-p ""` is the headless flag for non-interactive mode. Always include it.
-- `-m gemini-2.5-pro` selects the Pro model. Omit `-m` for Flash (default).
-- Always call `record_call("flash")` or `record_call("pro")` after a successful call (non-empty output).
-- Daily limits: Flash = 1000/day, Pro = 50/day. Pro costs more; use Flash for anything that doesn't require deep reasoning.
+**Key rules & features:**
+- Uses local Google Antigravity CLI (`agy`) automatically with zero API key requirement.
+- Flagship models:
+  - **Flash:** `gemini-3.8-flash-medium` (news sentiment, Reddit sentiment, technical commentary, screener quick-checks)
+  - **Pro:** `gemini-3.1-pro-low` (options analysis, MPT portfolio optimization, hedge fund 13F synthesis, holistic portfolio insights)
+- Built-in prompt deduplication cache (15 min TTL) prevents burning daily quota on page re-renders.
+- Automatic fallback: If a Pro call times out or encounters errors, the router automatically attempts completion using Flash (`gemini-3.8-flash-high`) so the user never gets an empty screen.
+- Usage tracking: `record_call()` is executed automatically by `ai_router.py`.
+- Daily limits: Flash = 1000/day, Pro = 50/day.
+
 
 ---
 

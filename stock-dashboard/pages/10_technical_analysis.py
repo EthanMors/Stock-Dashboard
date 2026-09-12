@@ -12,6 +12,8 @@ from components.gemini_usage_bar import render_gemini_usage_bar
 from components.ui import explainer, inject_global_css, page_header, render_sidebar_nav
 from analytics.patterns import DetectedPattern, PatternDetectionEngine
 from data.gemini_tracker import record_call
+from data.ai_router import run_ai
+
 
 st.set_page_config(page_title="Technical Analysis", page_icon="📈", layout="wide")
 render_gemini_usage_bar()
@@ -596,24 +598,10 @@ def _render_sidebar() -> tuple[bool, bool, int, float, bool]:
 # ---------------------------------------------------------------------------
 
 def _run_gemini_ta(prompt: str) -> str:
-    """Call Gemini CLI for technical analysis via stdin (same pattern as wsb_sentiment.py)."""
-    try:
-        result = subprocess.run(
-            ["gemini.cmd", "-p", ""],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-            timeout=90,
-        )
-        output = result.stdout.strip()
-        if output:
-            record_call("flash")
-        return output
-    except (subprocess.TimeoutExpired, Exception):
-        return ""
+    """Call AI router for technical analysis."""
+    output, _ = run_ai(prompt, tier="flash")
+    return output
+
 
 
 def _bars_since_detected(p: DetectedPattern, df_index: pd.Index) -> int:

@@ -1,37 +1,16 @@
-import json
-import re
-import subprocess
 from datetime import datetime
-
 import numpy as np
 import pandas as pd
 
-from data.gemini_tracker import record_call
+from data.ai_router import run_ai, extract_json_from_text
 
 
-# ── Gemini Pro runner ─────────────────────────────────────────────────────────
+# ── AI Pro runner ─────────────────────────────────────────────────────────────
 
 def _run_gemini_pro(prompt: str) -> tuple[str, str]:
-    """Call Gemini 2.5 Pro via CLI. Returns (stdout, stderr). Prompt passed via stdin."""
-    try:
-        result = subprocess.run(
-            ["gemini.cmd", "-m", "gemini-2.5-pro", "-p", ""],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-            timeout=120,
-        )
-        output = result.stdout.strip()
-        if output:
-            record_call("pro")
-        return output, result.stderr.strip()
-    except subprocess.TimeoutExpired:
-        return "", "Timed out after 120s"
-    except Exception as exc:
-        return "", str(exc)
+    """Call Pro tier model via AI router with automatic Flash fallback. Returns (stdout, stderr)."""
+    return run_ai(prompt, tier="pro", timeout=180, fallback_to_flash=True)
+
 
 
 # ── Metric helpers ────────────────────────────────────────────────────────────
@@ -313,13 +292,10 @@ _REQUIRED_FIELDS = [
 
 
 def _parse_response(raw: str) -> dict | None:
-    match = re.search(r"\{.*\}", raw, re.DOTALL)
-    if not match:
+    data = extract_json_from_text(raw)
+    if not isinstance(data, dict):
         return None
-    try:
-        data = json.loads(match.group())
-    except json.JSONDecodeError:
-        return None
+
 
     # Normalize bias/strength/confidence to valid values
     bias = str(data.get("directional_bias", "neutral")).lower()

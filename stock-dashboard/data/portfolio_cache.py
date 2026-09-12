@@ -506,7 +506,110 @@ def is_mpt_analysis_fresh(analyzed_at_str: str) -> bool:
         return False
 
 
+def record_daily_equity(account_id: str, balance: dict) -> None:
+    """Record today's balance snapshot into account_daily_equity.
+
+    Upserts for today's date so opening the dashboard multiple times in one day
+    keeps the latest equity value without creating duplicate rows.
+    """
+    if not account_id or not balance or not isinstance(balance, dict) or "error" in balance:
+        return
+
+    def _to_f(k):
+        try:
+            v = balance.get(k)
+            return float(v) if v is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    net_liq = _to_f("total_net_liquidation_value")
+    if net_liq is None or net_liq <= 0:
+        return
+
+    cash = _to_f("total_cash_balance")
+    mv = _to_f("total_market_value")
+    unreal = _to_f("total_unrealized_profit_loss")
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+
+    conn = _get_connection()
+    try:
+        conn.execute(
+            """
+            INSERT INTO account_daily_equity (account_id, date, net_liquidation, cash_balance, market_value, unrealized_pnl, recorded_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(account_id, date) DO UPDATE SET
+                net_liquidation = excluded.net_liquidation,
+                cash_balance    = excluded.cash_balance,
+                market_value    = excluded.market_value,
+                unrealized_pnl  = excluded.unrealized_pnl,
+                recorded_at     = excluded.recorded_at
+            """,
+            (account_id, today_str, net_liq, cash, mv, unreal, now_iso),
+        )
+        conn.commit()
+    except Exception:
+        pass
+    finally:
+        conn.close()
+
+
+def get_account_daily_equity(account_id: str, limit: int = 365) -> list[dict]:
+    """Retrieve historical daily equity entries for an account in chronological order."""
+    if not account_id:
+        return []
+    conn = _get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT date, net_liquidation, cash_balance, market_value, unrealized_pnl
+            FROM account_daily_equity
+            WHERE account_id = ?
+            ORDER BY date ASC
+            LIMIT ?
+            """,
+            (account_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+    finally:
+        conn.close()
+
+
+def compute_equity_sharpe(account_id: str, risk_free_rate: float = 0.05, min_days: int = 5) -> Optional[dict]:
+    """Compute true time-weighted Sharpe and return stats from daily equity history.
+
+    Returns dict with keys: sharpe, ann_return, ann_vol, n_days if n_days >= min_days, else None.
+    """
+    rows = get_account_daily_equity(account_id)
+    if len(rows) < min_days:
+        return None
+
+    vals = [r["net_liquidation"] for r in rows if r.get("net_liquidation") is not None]
+    if len(vals) < min_days:
+        return None
+
+    import numpy as np
+    import pandas as pd
+    series = pd.Series(vals)
+    rets = series.pct_change().dropna()
+    if len(rets) < min_days - 1 or rets.std() == 0:
+        return None
+
+    ann_ret = float(rets.mean() * 252)
+    ann_vol = float(rets.std() * np.sqrt(252))
+    sharpe = (ann_ret - risk_free_rate) / ann_vol if ann_vol > 1e-6 else 0.0
+    return {
+        "sharpe": round(sharpe, 2),
+        "ann_return_pct": round(ann_ret * 100, 2),
+        "ann_vol_pct": round(ann_vol * 100, 2),
+        "n_days": len(rets),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Initialize DB tables on import
 # ---------------------------------------------------------------------------
 init_db()
+

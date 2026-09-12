@@ -18,11 +18,8 @@ run_portfolio_insights(portfolio_data) -> dict
     Returns parsed JSON dict, or {"_error": str} on failure.
 """
 
-import json
-import re
-import subprocess
+from data.ai_router import run_ai, extract_json_from_text
 
-from data.gemini_tracker import record_call
 
 # ---------------------------------------------------------------------------
 # Prompt template
@@ -247,25 +244,12 @@ def _build_data_block(portfolio_data: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Gemini runner
+# AI runner
 # ---------------------------------------------------------------------------
 
 def _run_gemini_pro(prompt: str) -> tuple[str, str]:
-    """Call Gemini 2.5 Pro via CLI subprocess. Returns (stdout, stderr)."""
-    try:
-        result = subprocess.run(
-            ["gemini.cmd", "-m", "gemini-2.5-pro", "-p", ""],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            timeout=180,
-        )
-        return result.stdout.strip(), result.stderr.strip()
-    except subprocess.TimeoutExpired:
-        return "", "Gemini 2.5 Pro timed out after 180s."
-    except Exception as e:
-        return "", str(e)
+    """Call Pro tier model via AI router with automatic Flash fallback. Returns (stdout, stderr)."""
+    return run_ai(prompt, tier="pro", timeout=180, fallback_to_flash=True)
 
 
 # ---------------------------------------------------------------------------
@@ -273,7 +257,7 @@ def _run_gemini_pro(prompt: str) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 def run_portfolio_insights(portfolio_data: dict) -> dict:
-    """Generate holistic actionable insights from all portfolio data using Gemini 2.5 Pro.
+    """Generate holistic actionable insights from all portfolio data using Pro tier AI.
 
     Args:
         portfolio_data: dict with keys: balance, positions, news_results,
@@ -289,21 +273,11 @@ def run_portfolio_insights(portfolio_data: dict) -> dict:
     raw, stderr = _run_gemini_pro(prompt)
 
     if not raw:
-        return {"_error": f"No response from Gemini 2.5 Pro. {stderr[:200]}"}
+        return {"_error": f"No response from Pro tier AI. {stderr[:200]}"}
 
-    record_call("pro")
+    data = extract_json_from_text(raw)
+    if isinstance(data, dict):
+        return data
 
-    # Strip markdown code fences if present
-    clean = re.sub(r"```(?:json)?\s*", "", raw).strip().strip("`")
+    return {"_error": f"Could not parse AI response as JSON.\nRaw response:\n{raw[:800]}"}
 
-    try:
-        return json.loads(clean)
-    except json.JSONDecodeError:
-        # Try to extract a JSON object from the response
-        m = re.search(r"\{.*\}", clean, re.DOTALL)
-        if m:
-            try:
-                return json.loads(m.group())
-            except json.JSONDecodeError:
-                pass
-        return {"_error": f"Could not parse Gemini response as JSON.\nRaw response:\n{raw[:800]}"}

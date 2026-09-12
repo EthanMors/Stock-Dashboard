@@ -430,7 +430,7 @@ with col_run:
     run_clicked = st.button("▶ Run Gemini Analysis", use_container_width=True)
 with col_hint:
     st.caption(
-        "Uses Gemini 2.5 Pro · ~30–90s · "
+        "Uses Gemini 3.1 Pro · ~15–60s · "
         "Analyzes P/C ratio, IV skew, max pain, gamma exposure, key levels, unusual activity"
     )
 
@@ -438,7 +438,8 @@ if run_clicked:
     st.session_state.pop(cache_key, None)
 
 if cache_key not in st.session_state and run_clicked:
-    with st.spinner("Gemini 2.5 Pro analyzing the option chain…"):
+    with st.spinner("Gemini 3.1 Pro analyzing the option chain…"):
+
         analysis_result = run_options_analysis(
             ticker_sym, current_price, expiry, opt_type, calls_df, puts_df, display_df
         )

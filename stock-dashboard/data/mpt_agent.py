@@ -11,8 +11,6 @@ run_mpt_analysis(positions) -> dict | None
 """
 
 import json
-import re
-import subprocess
 from math import sqrt
 
 import numpy as np
@@ -20,7 +18,8 @@ import pandas as pd
 import yfinance as yf
 from scipy.optimize import minimize
 
-from data.gemini_tracker import record_call
+from data.ai_router import run_ai, extract_json_from_text
+
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -448,26 +447,8 @@ def _build_prompt(metrics: dict, positions: list) -> str:
 # ---------------------------------------------------------------------------
 
 def _run_gemini_pro(prompt: str) -> tuple[str, str]:
-    """Call Gemini 2.5 Pro via CLI subprocess. Returns (stdout, stderr). Prompt via stdin."""
-    try:
-        result = subprocess.run(
-            ["gemini.cmd", "-m", "gemini-2.5-pro", "-p", ""],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-            timeout=180,
-        )
-        output = result.stdout.strip()
-        if output:
-            record_call("pro")
-        return output, result.stderr.strip()
-    except subprocess.TimeoutExpired:
-        return "", "Timed out after 180s"
-    except Exception as exc:
-        return "", str(exc)
+    """Call Pro tier model via AI router with automatic Flash fallback. Returns (stdout, stderr)."""
+    return run_ai(prompt, tier="pro", timeout=180, fallback_to_flash=True)
 
 
 # ---------------------------------------------------------------------------
@@ -475,18 +456,15 @@ def _run_gemini_pro(prompt: str) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 def _parse_response(raw: str) -> dict | None:
-    """Extract and validate the JSON object from Gemini's raw stdout.
+    """Extract and validate the JSON object from raw stdout.
 
     Returns the parsed dict if valid, or None if the JSON cannot be parsed
     or lacks the required top-level keys.
     """
-    match = re.search(r"\{.*\}", raw, re.DOTALL)
-    if not match:
+    data = extract_json_from_text(raw)
+    if not isinstance(data, dict):
         return None
-    try:
-        data = json.loads(match.group())
-    except json.JSONDecodeError:
-        return None
+
 
     # Validate required top-level keys
     required_keys = {"per_ticker", "portfolio_metrics", "mpt_analysis", "action_items"}

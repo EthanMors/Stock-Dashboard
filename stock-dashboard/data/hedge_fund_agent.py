@@ -1,35 +1,14 @@
-import json
-import re
-import subprocess
-
-from data.gemini_tracker import record_call
+from data.ai_router import run_ai, extract_json_from_text
 
 
 # ---------------------------------------------------------------------------
-# Gemini Pro runner (same pattern as options_agent.py)
+# AI Pro runner
 # ---------------------------------------------------------------------------
 
 def _run_gemini_pro(prompt: str) -> tuple[str, str]:
-    """Call Gemini 2.5 Pro via CLI. Returns (stdout, stderr). Prompt passed via stdin."""
-    try:
-        result = subprocess.run(
-            ["gemini.cmd", "-m", "gemini-2.5-pro", "-p", ""],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-            timeout=180,
-        )
-        output = result.stdout.strip()
-        if output:
-            record_call("pro")
-        return output, result.stderr.strip()
-    except subprocess.TimeoutExpired:
-        return "", "Timed out after 180s"
-    except Exception as exc:
-        return "", str(exc)
+    """Call Pro tier model via AI router with automatic Flash fallback. Returns (stdout, stderr)."""
+    return run_ai(prompt, tier="pro", timeout=180, fallback_to_flash=True)
+
 
 
 # ---------------------------------------------------------------------------
@@ -71,11 +50,20 @@ def _build_prompt(overlapping_funds: list, portfolio_tickers: list) -> str:
     lines.append("=== OVERLAPPING FUNDS (concentrated hedge funds also holding your stocks) ===")
     lines.append("")
 
-    for fund in overlapping_funds:
+    def _fund_rank(f: dict) -> tuple:
+        h_list = f.get("overlapping_holdings", [])
+        has_deriv = any(str(h.get("put_call", "")).strip().upper() in ("PUT", "CALL", "P", "C") for h in h_list)
+        max_pct = max((float(h.get("pct_of_portfolio", 0.0) or 0.0) for h in h_list), default=0.0)
+        return (1 if has_deriv else 0, len(h_list), max_pct)
+
+    sorted_funds = sorted(overlapping_funds, key=_fund_rank, reverse=True)
+    max_detailed = 25
+    if len(sorted_funds) > max_detailed:
+        lines.append(f"(Showing {max_detailed} highest-conviction & derivative funds out of {len(sorted_funds)} overlapping funds; Section 3 aggregates below cover all {len(sorted_funds)} funds.)\n")
+
+    for fund in sorted_funds[:max_detailed]:
         fund_name = fund.get("name") or fund.get("cik", "Unknown")
         total_val = fund.get("total_value", 0.0)
-        # Estimate position count from overlapping holdings list length
-        # (total_holdings not available in the overlap dict — use overlapping only)
         holdings = fund.get("overlapping_holdings", [])
 
         lines.append(
@@ -96,6 +84,7 @@ def _build_prompt(overlapping_funds: list, portfolio_tickers: list) -> str:
                 f"    - {ticker}: {pct:.1f}% of fund ({_format_value(val)}, {shares_str} shares) [{position_type}]"
             )
         lines.append("")
+
 
     # Section 3 — Cross-fund ticker summary (aggregate stats per ticker)
     lines.append("=== CROSS-FUND TICKER SUMMARY ===")
@@ -198,14 +187,11 @@ def _build_prompt(overlapping_funds: list, portfolio_tickers: list) -> str:
 # ---------------------------------------------------------------------------
 
 def _parse_response(raw: str) -> dict | None:
-    """Extract and parse the JSON object from Gemini's raw stdout."""
-    match = re.search(r"\{.*\}", raw, re.DOTALL)
-    if not match:
+    """Extract and parse the JSON object from raw stdout."""
+    data = extract_json_from_text(raw)
+    if not isinstance(data, dict):
         return None
-    try:
-        data = json.loads(match.group())
-    except json.JSONDecodeError:
-        return None
+
 
     # Validate top-level structure
     if "per_ticker" not in data or "portfolio_signal" not in data:
