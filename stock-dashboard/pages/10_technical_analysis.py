@@ -9,7 +9,7 @@ from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 
 from components.gemini_usage_bar import render_gemini_usage_bar
-from components.ui import inject_global_css, page_header, render_sidebar_nav
+from components.ui import explainer, inject_global_css, page_header, render_sidebar_nav
 from analytics.patterns import DetectedPattern, PatternDetectionEngine
 from data.gemini_tracker import record_call
 
@@ -970,6 +970,30 @@ def main() -> None:
                        patterns=patterns, show_patterns=show_patterns)
     st.plotly_chart(fig, use_container_width=True)
 
+    explainer(
+        "**Each candle is one time period** — one day on the daily view, five "
+        "minutes on the 1D view. The thick body runs between the opening and closing "
+        "price; the thin wicks show the highest and lowest price touched. **Green "
+        "closed above its open, red closed below.** Long bodies mean conviction; "
+        "small bodies with long wicks mean the period was fought over and settled "
+        "nowhere. The panel underneath is volume, coloured to match — a big move on "
+        "low volume is much less convincing than the same move on heavy volume.\n\n"
+        "**EMA lines (9 / 21 / 50)** are smoothed averages of price that weight "
+        "recent bars more heavily, so they turn faster than a plain average. The "
+        "standard read is their order: short line above long line and both rising is "
+        "an uptrend. When the short crosses *below* the long, that is the classic "
+        "trend-change warning — and also the classic false alarm in a sideways "
+        "market.\n\n"
+        "**Bollinger Bands** are the shaded channel, two standard deviations either "
+        "side of a 20-period average. Wide bands mean a volatile stretch, a narrow "
+        "squeeze means a quiet one and often precedes a large move — though the "
+        "bands give no hint which way. Touching the upper band means \"high relative "
+        "to its own recent range\", which in a strong uptrend can go on for weeks. It "
+        "is not a sell signal.\n\n"
+        "Every one of these is a description of what price has already done. None of "
+        "them knows anything about the company."
+    )
+
     # ── Footer ────────────────────────────────────────────────────────────
     st.caption(
         f"{len(df):,} bars · {interval} interval · "
@@ -1058,6 +1082,28 @@ def _render_pattern_section(
             "Vol":        st.column_config.TextColumn("Vol ✓",      width="small"),
             "Notes":      st.column_config.TextColumn("Notes",      width="large"),
         },
+    )
+
+    explainer(
+        "**An algorithm scanned the price history for classic chart shapes** — "
+        "flags, wedges, triangles, double tops and bottoms, head-and-shoulders. Each "
+        "row is one shape it believes it found, best match first. Patterns scoring "
+        "0.55 or higher are also drawn on the chart above.\n\n"
+        "- **Dir** — ↑ the shape points higher, ↓ it points lower.\n"
+        "- **Confidence** — 0 to 1, how cleanly the price action matched the "
+        "textbook shape.\n"
+        "- **Entry** — the price at which the pattern is considered triggered.\n"
+        "- **Stop** — the price that would show the pattern has failed.\n"
+        "- **Target** — where the pattern projects price to go.\n"
+        "- **R/R** — how far the target is compared with how far the stop is. 3.0:1 "
+        "means three units of potential gain per unit risked; under about 1.5:1 the "
+        "setup has to work most of the time just to break even.\n"
+        "- **Vol ✓** — volume behaved as the pattern requires. This is the most "
+        "useful filter in the table; patterns without it fail far more often.\n\n"
+        "**The caveat that matters:** confidence measures how neat the drawing is, "
+        "not the odds of it working. Random price data produces these shapes too. "
+        "Use a detected pattern as a reason to examine the chart yourself, and give "
+        "real weight only to ones with volume confirmation and a sensible R/R."
     )
 
     # Detail expander for highest-confidence pattern

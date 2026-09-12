@@ -19,7 +19,7 @@ from analytics.patterns import DetectedPattern, PatternDetectionEngine
 from data.gemini_tracker import record_call
 
 from components.gemini_usage_bar import render_gemini_usage_bar
-from components.ui import inject_global_css, page_header, render_sidebar_nav, section_header
+from components.ui import explainer, inject_global_css, page_header, render_sidebar_nav, section_header
 from data.options_agent import run_options_analysis
 from data.webull_positions import (
     is_configured,
@@ -824,6 +824,26 @@ def _ta_ui(tickers: list[str]) -> None:
     )
     st.plotly_chart(ta_fig, use_container_width=True)
 
+    explainer(
+        "**Each candle is one time period.** The thick body spans the open and close "
+        "prices; the thin wicks above and below show the highest and lowest price "
+        "reached. **Green means the period closed higher than it opened, red means "
+        "lower.** A long body is a decisive period, a tiny body with long wicks is "
+        "indecision. The bars along the bottom are volume, coloured to match.\n\n"
+        "**The EMA lines** are exponential moving averages over 9, 21 and 50 periods "
+        "— smoothed versions of price that weight recent bars more heavily. Their "
+        "usual use is stacking order: short above long and both rising is an uptrend; "
+        "the short line crossing below the long one is the classic warning sign. "
+        "Price tends to bounce off these lines in a trend and cut straight through "
+        "them when the trend is over.\n\n"
+        "**The Bollinger Bands** are the shaded envelope, drawn two standard "
+        "deviations either side of a 20-period average. They widen when the stock is "
+        "volatile and squeeze when it is quiet. Price touching the upper band means "
+        "\"unusually high *for recent conditions*\" — not \"overpriced\", and not a "
+        "sell signal. A long squeeze often precedes a big move, but the bands say "
+        "nothing about which direction it will go."
+    )
+
     st.caption(
         f"{len(ta_df):,} bars · {interval} interval · "
         f"{ta_df.index[0].strftime('%Y-%m-%d')} → {ta_df.index[-1].strftime('%Y-%m-%d')} · "
@@ -877,6 +897,27 @@ def _ta_ui(tickers: list[str]) -> None:
                 "Vol":        st.column_config.TextColumn("Vol ✓",      width="small"),
                 "Notes":      st.column_config.TextColumn("Notes",      width="large"),
             },
+        )
+
+        explainer(
+            "**An algorithm scanned the chart for recognised shapes** — flags, "
+            "triangles, double tops, head-and-shoulders and similar. Each row is one "
+            "shape it thinks it found.\n\n"
+            "- **Dir** — ↑ the pattern points up, ↓ it points down.\n"
+            "- **Confidence** — 0 to 1, how cleanly the shape matched. Only patterns "
+            "at 0.55 and above are drawn on the chart above.\n"
+            "- **Entry / Stop / Target** — the textbook price to act at, the price "
+            "that would prove the pattern wrong, and the price the pattern projects.\n"
+            "- **R/R** — reward-to-risk. 3.0:1 means the distance to target is three "
+            "times the distance to the stop. Higher is better; below about 1.5:1 the "
+            "trade needs to be right most of the time to pay.\n"
+            "- **Vol ✓** — a tick means volume behaved the way the pattern expects, "
+            "which is the single best filter on this table.\n\n"
+            "**Be sceptical.** Pattern recognition finds shapes in random data too, "
+            "and confidence measures how well the shape matched — not how likely it "
+            "is to work. A 0.9 confidence pattern is a *cleaner drawing*, not a "
+            "better bet. Use these as a prompt to look closer, and weight anything "
+            "without volume confirmation very lightly."
         )
 
     # ── AI Analysis section ───────────────────────────────────────────────
@@ -1598,6 +1639,28 @@ def _render_mpt_analysis(positions: list) -> None:
         "then Gemini 2.5 Pro interprets the results. Results cached 4 hours."
     )
 
+    explainer(
+        "**The one idea behind all of this:** risk is not the sum of your individual "
+        "stocks' risks. If two holdings tend to fall on the same days, owning both is "
+        "barely safer than owning one. If they move independently, the combination is "
+        "genuinely steadier than either alone. Everything below is machinery for "
+        "measuring that.\n\n"
+        "The **efficient frontier** is the curve of the best possible portfolios — "
+        "for any level of risk you accept, the frontier is the highest return anyone "
+        "could have got from these same holdings by weighting them differently. Your "
+        "portfolio is plotted against it. Sitting *below the frontier* means some "
+        "reshuffling of weights would have given you the same return with less "
+        "swing — that is the entire finding, and it is a statement about the past "
+        "year, not a prediction.\n\n"
+        "**Two numbers do most of the work.** **Sharpe ratio** is return per unit of "
+        "risk — above 1.0 is good, below 0.5 means you are being paid badly for the "
+        "volatility you are living with. **Beta** is sensitivity to the market — 1.0 "
+        "moves with the S&P, 1.5 moves half again as hard in both directions.\n\n"
+        "All of it is computed from one year of daily returns, so it describes how "
+        "these stocks behaved recently. Correlations in particular rise sharply in "
+        "crashes, which is exactly when you were counting on them not to."
+    )
+
     portfolio_tickers = _get_portfolio_tickers(positions)
     if not portfolio_tickers:
         st.info("No ticker symbols found in positions — cannot run MPT analysis.")
@@ -1875,6 +1938,27 @@ def _render_mpt_metrics_tables(metrics: dict) -> None:
         help="Herfindahl index of weights. Lower = more diversified. Equal-weight N stocks = 1/N.",
     )
 
+    explainer(
+        "**These four numbers describe the whole portfolio, computed from one year "
+        "of daily prices.**\n\n"
+        "- **Expected Annual Return** — your holdings' last-12-month returns, "
+        "combined at your current weights and annualised. It is backward-looking. "
+        "The word \"expected\" is a statistics term, not a promise.\n"
+        "- **Portfolio Volatility** — roughly how much the portfolio's value swings "
+        "in a typical year. 20% means moves of ±20% are ordinary, not alarming.\n"
+        "- **Sharpe Ratio** — return above cash, divided by that volatility. It "
+        "answers \"am I being paid for the stress?\" Above 1.0 is good, 0.5–1.0 is "
+        "ordinary, below 0.5 means a calmer portfolio would likely have done as "
+        "well.\n"
+        "- **HHI Concentration** — how much of the portfolio sits in a few names. "
+        "The caption shows the equal-weight baseline for comparison; anything well "
+        "above it means one or two positions dominate everything.\n\n"
+        "**What to actually take away:** a high return with a low Sharpe means you "
+        "got there by taking a lot of risk, and a bad year would hurt "
+        "correspondingly. HHI well above baseline is the clearest actionable signal "
+        "here — it means your results are really one stock's results."
+    )
+
     # ── Per-ticker table ──────────────────────────────────────────────────
     rows = []
     for t in tickers:
@@ -1921,6 +2005,27 @@ def _render_mpt_metrics_tables(metrics: dict) -> None:
         styled_corr = corr_df.style.map(_corr_color).format("{:.3f}")
         st.dataframe(styled_corr, use_container_width=True,
                      height=_mpt_hdr_h + _mpt_row_h * len(corr_df))
+
+        explainer(
+            "**Every cell answers one question: when this stock moves, does that one "
+            "move with it?** Find a row, read across to a column, and the number is "
+            "how tightly those two have moved together over the past year. **1.000** "
+            "is perfect lockstep, **0** is no relationship at all, and negative means "
+            "they tend to move in opposite directions. The diagonal is always 1.000 "
+            "because every stock matches itself.\n\n"
+            "**The colours:** red is 0.70 and above (these two are nearly the same "
+            "bet), orange 0.40–0.70, yellow 0.10–0.40, green around zero (genuinely "
+            "independent — this is what you want), blue below -0.10 (they hedge each "
+            "other).\n\n"
+            "**What to do with it:** a wall of red means your portfolio is less "
+            "diversified than the number of tickers suggests, and it will move as one "
+            "block on a bad day. Green and blue cells are where real diversification "
+            "lives.\n\n"
+            "**The honest caveat:** correlation is not causation, and these are "
+            "one-year figures that shift over time. In a serious sell-off almost "
+            "everything correlates towards 1.0 — the diversification you see here is "
+            "weakest exactly when you need it most."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -3302,6 +3407,29 @@ def _render_options_analysis(result: dict, spot: float) -> None:
     m5.metric("Net Dealer GEX", f"${net_gex_val/1e6:.2f}M" if net_gex_val is not None else "N/A",
               help="Positive = dealers long gamma (pinning). Negative = vol amplification.")
 
+    explainer(
+        "**Five readings taken from the whole options chain for this expiry.** They "
+        "describe how other people are positioned — not what the stock is worth.\n\n"
+        "- **P/C OI Ratio** — puts versus calls among all contracts currently open. "
+        "Above 1.0 means more puts exist than calls, usually read as caution or "
+        "hedging. Around 0.7–1.0 is ordinary for most large stocks.\n"
+        "- **P/C Vol Ratio** — the same ratio for *today's* trading only. This is the "
+        "fast-moving one; a big gap between it and the OI ratio means today's "
+        "positioning is unusual.\n"
+        "- **Max Pain** — the price at which the largest dollar amount of options "
+        "would expire worthless. The caption shows the distance from the current "
+        "price. Prices sometimes drift towards it in the last day or two of an "
+        "expiry. This is a weak, much-overhyped effect.\n"
+        "- **IV Skew** — how much more traders are paying for downside protection "
+        "than for upside. Positive means fear is priced in; a large positive skew "
+        "means puts are expensive right now.\n"
+        "- **Net Dealer GEX** — positive tends to dampen moves (market makers sell "
+        "rallies and buy dips to stay hedged); negative tends to amplify them.\n\n"
+        "**All five are positioning, not prediction.** Crowded positioning gets "
+        "unwound as often as it gets confirmed, and every number here resets at "
+        "expiry."
+    )
+
     st.markdown("---")
 
     sections = [
@@ -3449,6 +3577,24 @@ def _dashboard_visuals_ui(positions: list, tickers: list[str]) -> None:
             st.caption(
                 "Current holdings held throughout period · normalized to first trading day · SPY for reference"
             )
+            explainer(
+                "**Both lines start at the same point on the left.** Everything is "
+                "rebased to the first trading day of the period you picked above, so "
+                "the vertical axis is percentage change since then, not dollars. "
+                "That is the only fair way to compare a portfolio against an index "
+                "of a different size.\n\n"
+                "One line is your holdings; the **SPY line is the S&P 500**, the "
+                "default \"what if I had just bought the whole market\" comparison. "
+                "The gap between the lines at the right edge is the entire story: "
+                "above SPY you beat the market over this window, below it you did "
+                "not.\n\n"
+                "**Two things to keep in mind.** First, this assumes you held today's "
+                "positions for the whole period — it does not know when you actually "
+                "bought, so it is not your real return. Second, change the period "
+                "selector and the answer can flip completely; a portfolio can beat "
+                "the market over one year and trail badly over three. Check at least "
+                "two periods before concluding anything."
+            )
         else:
             st.info("Price history unavailable. Check your internet connection.")
 
@@ -3458,6 +3604,24 @@ def _dashboard_visuals_ui(positions: list, tickers: list[str]) -> None:
         st.plotly_chart(fig_weights, use_container_width=True)
         section_header("Sector Allocation")
         st.plotly_chart(fig_sectors, use_container_width=True)
+        explainer(
+            "**Two views of the same money.** The top ring splits your total value "
+            "by individual position — each slice is one ticker's share of the "
+            "portfolio. The bottom ring groups those same positions by industry "
+            "sector, so several holdings can merge into one slice.\n\n"
+            "Slice size is share of current market value, not what you paid. Hover "
+            "any slice for the exact percentage.\n\n"
+            "**Compare the two rings — that is the point.** The top one can look "
+            "beautifully spread across eight names while the bottom one shows a "
+            "single sector taking 60% of the ring. That is concentration hiding in "
+            "plain sight: eight tech stocks is closer to one bet than eight. The "
+            "correlation heatmap in the MPT section confirms whether that is "
+            "actually true for your holdings.\n\n"
+            "Positions the data source could not classify are grouped into an "
+            "\"Unknown\" or \"Other\" slice — usually ETFs, cash, or options, not an "
+            "error.",
+            title="How to read these allocation rings",
+        )
 
     st.markdown("---")
 
@@ -3907,6 +4071,29 @@ with _tab_dash:
             },
         )
 
+        explainer(
+            "**One row per holding, one column per independent source of opinion.** "
+            "The point is not any single cell — it is whether the columns agree.\n\n"
+            "- **News** — sentiment the AI read out of recent articles, scored -1.00 "
+            "to +1.00.\n"
+            "- **Reddit** — the same idea applied to retail chatter. Loud, fast, and "
+            "frequently wrong, but it moves small caps.\n"
+            "- **Options** — what the options market is positioned for, from the "
+            "options analysis. Real money, and usually the least emotional column.\n"
+            "- **Smart Money** — how many hedge funds hold it from 13F filings, and "
+            "whether that holding is a straight bullish stake, a hedge, or a put. "
+            "Note that 13Fs are filed up to 45 days late.\n\n"
+            "**The marks:** ▲ green is positive, ▼ red is negative, ● yellow is "
+            "neutral, and a grey **—** means that analysis has not been run yet "
+            "(not that the signal is neutral — use ⚡ Analyze Everything to fill "
+            "them in).\n\n"
+            "**Reading it:** a row where all four point the same way is a real "
+            "consensus. A row where news is green and options are red is the "
+            "interesting case — it usually means the story is already priced in, or "
+            "that people with money at stake disagree with the headlines. Disagreement "
+            "is a reason to look closer, not a reason to average the cells together."
+        )
+
     # ── Details expander — per-ticker news cards + MPT card ────────────────────
     with st.expander("Details — per-ticker news & MPT analytics", expanded=False):
         # Per-ticker news detail cards
@@ -3931,6 +4118,26 @@ with _tab_dash:
         _mpt_ss = st.session_state.mpt_analysis
         if _mpt_ss:
             section_header("MPT & Portfolio Analytics")
+            explainer(
+                "**A three-number summary of the full MPT analysis** (the detailed "
+                "version lives in the Options & MPT tab).\n\n"
+                "The coloured banner is an overall grade for how efficiently your "
+                "portfolio is built, plus a rebalancing priority — how urgently the "
+                "model thinks the weights need changing.\n\n"
+                "- **Return** — the last twelve months, annualised, at your current "
+                "weights. Backward-looking.\n"
+                "- **Volatility** — how much the portfolio typically swings in a "
+                "year. 20% means ±20% moves are normal.\n"
+                "- **Sharpe** — return per unit of that volatility. Above 1.0 is "
+                "good; below 0.5 says you are taking on swings you are not being "
+                "paid for.\n\n"
+                "The rebalancing actions underneath are the model's suggested weight "
+                "changes, coloured green to increase and red to reduce. They are "
+                "optimised against the **past** year of price behaviour, which is a "
+                "real limitation — an optimiser will happily tell you to pile into "
+                "whatever happened to do well recently. Treat them as a prompt to "
+                "check your concentration, not a trade list."
+            )
             _mpt_r  = _mpt_ss.get("result", {})
             _mpt_m  = _mpt_ss.get("metrics", {})
             _mpt_ma = _mpt_r.get("mpt_analysis", {})

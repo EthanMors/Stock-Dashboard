@@ -4,7 +4,7 @@ from typing import Optional
 import streamlit as st
 
 from components.gemini_usage_bar import render_gemini_usage_bar
-from components.ui import inject_global_css, page_header
+from components.ui import inject_global_css, page_header, render_sidebar_nav
 from data.fetcher import get_stock_info
 
 st.set_page_config(
@@ -16,20 +16,6 @@ st.set_page_config(
 
 render_gemini_usage_bar()
 inject_global_css()
-
-_PAGES = [
-    {"icon": "📊", "label": "Metrics",     "path": "pages/1_metrics.py"},
-    {"icon": "📝", "label": "Thesis",      "path": "pages/2_thesis.py"},
-    {"icon": "👁️",  "label": "Watchlist",   "path": "pages/3_watchlist.py"},
-    {"icon": "📰", "label": "News",        "path": "pages/4_news.py"},
-    {"icon": "🏦", "label": "Hedge Funds", "path": "pages/5_hedge_funds.py"},
-    {"icon": "⛓️", "label": "Option Chains", "path": "pages/6_option_chains.py"},
-    {"icon": "💼", "label": "Positions",     "path": "pages/7_positions.py"},
-    {"icon": "🌐", "label": "Social",        "path": "pages/8_social.py"},
-    {"icon": "📁", "label": "Portfolio",     "path": "pages/9_portfolio.py"},
-    {"icon": "📈", "label": "Technical Analysis", "path": "pages/10_technical_analysis.py"},
-    {"icon": "🔬", "label": "Backtest",      "path": "pages/11_backtest.py"},
-]
 
 _DEMO_TICKERS = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN"]
 _INDEX_TICKERS = ["^GSPC", "^DJI", "^IXIC", "^RUT"]
@@ -71,12 +57,6 @@ def _render_sidebar_search() -> None:
             st.sidebar.warning("Enter a ticker first.")
 
 
-def _render_sidebar_nav() -> None:
-    """Render page navigation links."""
-    for page in _PAGES:
-        st.sidebar.page_link(page["path"], label=page["label"])
-
-
 def _render_sidebar_footer() -> None:
     """Render last-updated timestamp and watchlist count at sidebar bottom."""
     st.sidebar.markdown("---")
@@ -87,17 +67,13 @@ def _render_sidebar_footer() -> None:
 
 
 def _render_sidebar() -> None:
-    """Compose all sidebar sections."""
-    st.sidebar.markdown(
-        '<div class="sidebar-brand">'
-        '<h1>Stock Dashboard</h1>'
-        '<p>Live data · AI analysis · Portfolio</p>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
+    """Compose all sidebar sections.
+
+    Nav comes from components/ui.py so Home and every other page show the same
+    list — it also renders the brand block.
+    """
+    render_sidebar_nav()
     _render_sidebar_search()
-    st.sidebar.markdown('<p class="section-header" style="padding-left:0.25rem;">Navigation</p>', unsafe_allow_html=True)
-    _render_sidebar_nav()
     _render_sidebar_footer()
 
 
@@ -193,26 +169,26 @@ def _render_landing() -> None:
     col1, col2, col3, col4, col5 = st.columns(5)
 
     _cards = [
-        (col1, "Metrics",
+        (col1, "Portfolio",
+         "Your live positions with AI insights, news, options & MPT, technical "
+         "analysis, Reddit chatter, smart money overlap, and macro pulse.",
+         "pages/9_portfolio.py", "Open Portfolio"),
+        (col2, "Seasonality & Regime",
+         "What is coming: month-by-month history, the macro regime, sector gaps "
+         "vs the S&P, and the catalyst calendar.",
+         "pages/13_seasonality.py", "Open Seasonality"),
+        (col3, "Screener",
+         "Surface small and micro-cap candidates with high upside potential, "
+         "then assess the risk with Gemini 2.5 Pro.",
+         "pages/12_screener.py", "Open Screener"),
+        (col4, "Metrics",
          "Deep-dive valuation, profitability, growth, and balance sheet metrics "
          "with candlestick, revenue, margin, FCF, and earnings charts.",
          "pages/1_metrics.py", "Open Metrics"),
-        (col2, "Thesis Tracker",
+        (col5, "Thesis Tracker",
          "Write and store investment theses with conviction level, price targets, "
          "catalysts, and bear cases. Tracks metrics at time of writing vs. today.",
          "pages/2_thesis.py", "Open Thesis Tracker"),
-        (col3, "Watchlist",
-         "Monitor tickers with live prices, P/E, gross margin, 52-week range, "
-         "and alert prices. One-click to analyze any ticker.",
-         "pages/3_watchlist.py", "Open Watchlist"),
-        (col4, "News",
-         "Latest ticker news via Massive.com with sentiment analysis. "
-         "Paywalled sources are automatically skipped.",
-         "pages/4_news.py", "Open News"),
-        (col5, "Hedge Funds",
-         "Concentrated hedge fund portfolios from SEC 13F filings. "
-         "Top, bottom, and a daily-rotating pick from funds with fewer than 15 positions.",
-         "pages/5_hedge_funds.py", "Open Hedge Funds"),
     ]
 
     for col, title, desc, path, link_label in _cards:

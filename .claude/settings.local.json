@@ -84,7 +84,12 @@
       "Bash(README\")",
       "Bash(Get-ChildItem -Recurse -Directory)",
       "Bash(Select-Object -First 20)",
-      "mcp__dashboard-tester__run_integration_check"
+      "mcp__dashboard-tester__run_integration_check",
+      "mcp__dashboard-tester__get_component_status",
+      "PowerShell(cd \"C:\\\\Users\\\\ethan\\\\Downloads\\\\Stock Dashboard\\\\stock-dashboard\"; Start-Process powershell -ArgumentList \"-NoExit\", \"-Command\", \"streamlit run dashboard.py\" -WindowStyle Normal)",
+      "PowerShell(python -m streamlit --version 2>&1; \\(Get-Command python\\).Source)",
+      "PowerShell(python -m pip index versions anyio 2>&1 | Select-Object -First 5)",
+      "PowerShell(git *)"
     ]
   },
   "enableAllProjectMcpServers": true,

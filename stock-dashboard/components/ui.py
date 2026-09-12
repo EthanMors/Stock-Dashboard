@@ -333,19 +333,30 @@ def inject_global_css() -> None:
 # Sidebar navigation component
 # ---------------------------------------------------------------------------
 
+# The nav is deliberately short: one page per step of the actual workflow —
+# what do I own, what is coming, what should I buy next, is it any good, when do
+# I buy it, and why. Ordered to match that sequence.
 _NAV_PAGES = [
     ("Home",               "dashboard.py"),
-    ("Metrics",            "pages/1_metrics.py"),
-    ("Thesis",             "pages/2_thesis.py"),
-    ("Watchlist",          "pages/3_watchlist.py"),
-    ("News",               "pages/4_news.py"),
-    ("Hedge Funds",        "pages/5_hedge_funds.py"),
-    ("Option Chains",      "pages/6_option_chains.py"),
-    ("Positions",          "pages/7_positions.py"),
-    ("Social",             "pages/8_social.py"),
     ("Portfolio",          "pages/9_portfolio.py"),
+    ("Seasonality",        "pages/13_seasonality.py"),
+    ("Screener",           "pages/12_screener.py"),
+    ("Metrics",            "pages/1_metrics.py"),
     ("Technical Analysis", "pages/10_technical_analysis.py"),
-    ("Backtest",           "pages/11_backtest.py"),
+    ("Thesis",             "pages/2_thesis.py"),
+]
+
+# Hidden from the sidebar, not deleted. Each one is either already a tab inside
+# Portfolio (noted below) or off the buy/hold/sell path. The files still exist
+# and stay reachable by URL — move a line back into _NAV_PAGES to restore it.
+_HIDDEN_PAGES = [
+    ("Positions",     "pages/7_positions.py"),       # Portfolio > Dashboard
+    ("News",          "pages/4_news.py"),            # Portfolio > News
+    ("Hedge Funds",   "pages/5_hedge_funds.py"),     # Portfolio > Smart Money
+    ("Option Chains", "pages/6_option_chains.py"),   # Portfolio > Options & MPT
+    ("Social",        "pages/8_social.py"),          # Portfolio > Reddit
+    ("Watchlist",     "pages/3_watchlist.py"),       # overlaps Thesis "Watching"
+    ("Backtest",      "pages/11_backtest.py"),       # strategy research, not daily use
 ]
 
 
@@ -408,6 +419,27 @@ def section_header(label: str) -> None:
         f'<p class="section-header">{label}</p>',
         unsafe_allow_html=True,
     )
+
+
+# ---------------------------------------------------------------------------
+# Explainer dropdown
+# ---------------------------------------------------------------------------
+
+def explainer(body: str, title: str = "How to read this", expanded: bool = False) -> None:
+    """Render a collapsed dropdown explaining how to read a chart or table.
+
+    Put one directly under any visualisation whose axes, colours, or scoring
+    are not self-evident. Keep `body` in plain language — say what the marks
+    mean, then what a reader should actually conclude from them.
+
+    Args:
+        body:     Markdown shown when the dropdown is opened.
+        title:    Label on the closed dropdown.
+        expanded: Start opened. Use sparingly — only for the first, most
+                  important explainer on a page.
+    """
+    with st.expander(f"❓ {title}", expanded=expanded):
+        st.markdown(body)
 
 
 # ---------------------------------------------------------------------------
